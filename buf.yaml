@@ -1,0 +1,13 @@
+version: v2
+modules:
+  - path: proto
+    name: buf.build/vrtc2/protobitpacker
+    lint:
+      use:
+        - STANDARD
+      ignore_only:
+        PACKAGE_VERSION_SUFFIX:
+          - proto/bitpacker/v1/example/example.proto
+breaking:
+  use:
+    - FILE

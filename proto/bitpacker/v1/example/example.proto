@@ -1,0 +1,98 @@
+// Example schemas demonstrating protobitpacker annotations.
+// This file is for documentation purposes; it is not part of the published API.
+
+syntax = "proto3";
+
+package bitpacker.v1.example;
+
+import "bitpacker/v1/options.proto";
+
+option go_package = "github.com/vrtc2/protobitpacker/gen/go/bitpacker/v1/example;examplev1";
+
+// SensorReading demonstrates scalar, optional, and enum fields.
+//
+// Packed size (no label): 12 + 11 + 7 + 1 + 2 + 1(presence) = 34 bits → 5 bytes
+// Standard protobuf (no label):                                          ≈ 10-14 bytes
+message SensorReading {
+  // Device ID: 0–4095
+  uint32 sensor_id = 1 [(bitpacker.v1.field).bits = 12];
+
+  // Temperature in units of 0.1 °C. Range: –512..511 (–51.2 °C to 51.1 °C)
+  // sint32 zigzag ensures small negative values are efficient.
+  sint32 temperature_deci = 2 [(bitpacker.v1.field).bits = 11];
+
+  // Relative humidity 0–100 %
+  uint32 humidity_pct = 3 [(bitpacker.v1.field).bits = 7];
+
+  // Alert flag — bool defaults to 1 bit; no annotation required.
+  bool alert = 4;
+
+  // Operational status — 2 bits covers 4 enum values (0–3).
+  SensorStatus status = 5 [(bitpacker.v1.field).bits = 2];
+
+  // Optional human-readable label — up to 31 bytes.
+  // 1-bit presence + 5-bit length + up to 31×8 bits of data.
+  optional string label = 6 [(bitpacker.v1.field).length_bits = 5];
+}
+
+enum SensorStatus {
+  SENSOR_STATUS_UNSPECIFIED = 0;
+  SENSOR_STATUS_OK          = 1;
+  SENSOR_STATUS_WARNING     = 2;
+  SENSOR_STATUS_ERROR       = 3;
+}
+
+// Packet demonstrates oneof and nested message.
+//
+// Packed size (ack case): 2(selector) + 1(bool) = 3 bits → 1 byte
+// Packed size (command case): 2(selector) + 8(uint32) = 10 bits → 2 bytes
+message Packet {
+  uint32 sequence = 1 [(bitpacker.v1.field).bits = 16];
+
+  oneof payload {
+    // 2 bits: 0=none, 1=raw, 2=command, 3=ack
+    option (bitpacker.v1.oneof).selector_bits = 2;
+
+    // Raw binary payload — up to 255 bytes.
+    bytes raw = 2 [(bitpacker.v1.field).length_bits = 8];
+
+    // Command opcode 0–255.
+    uint32 command = 3 [(bitpacker.v1.field).bits = 8];
+
+    // Acknowledgement flag.
+    bool ack = 4;
+  }
+}
+
+// Burst demonstrates repeated scalar and repeated message fields.
+//
+// Packed size for 4 readings: 8(count) + 4×34 = 144 bits → 18 bytes
+// Standard protobuf for 4 readings:                        ≈ 56–72 bytes
+message Burst {
+  // Up to 255 readings per burst.
+  repeated SensorReading readings = 1 [(bitpacker.v1.field).count_bits = 8];
+
+  // Up to 15 raw ADC samples, each 12-bit unsigned.
+  repeated uint32 adc_samples = 2 [
+    (bitpacker.v1.field).count_bits = 4,
+    (bitpacker.v1.field).bits = 12
+  ];
+
+  // Up to 7 string tags, each up to 31 bytes.
+  repeated string tags = 3 [
+    (bitpacker.v1.field).count_bits = 3,
+    (bitpacker.v1.field).length_bits = 5
+  ];
+}
+
+// Config demonstrates a map field.
+//
+// Encoding: 6(count) + per-entry×(5(key_length) + key_bytes×8 + 16(value)) bits
+message Config {
+  // Up to 63 key-value pairs; keys up to 31 bytes; values are 16-bit unsigned.
+  map<string, uint32> settings = 1 [
+    (bitpacker.v1.field).count_bits = 6,
+    (bitpacker.v1.field).key_length_bits = 5,
+    (bitpacker.v1.field).bits = 16
+  ];
+}

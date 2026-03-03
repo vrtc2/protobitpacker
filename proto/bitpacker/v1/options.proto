@@ -1,0 +1,105 @@
+syntax = "proto3";
+
+package bitpacker.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/vrtc2/protobitpacker/gen/go/bitpacker/v1;bitpackerv1";
+
+// FieldOptions controls how a single field is encoded in the bit-packed stream.
+//
+// Usage:
+//   uint32 speed = 1 [(bitpacker.v1.field).bits = 10];
+//   repeated sint32 samples = 2 [
+//     (bitpacker.v1.field).count_bits = 8,
+//     (bitpacker.v1.field).bits = 12
+//   ];
+message FieldOptions {
+  // bits: number of bits allocated for the field value.
+  //
+  // Applicable to:
+  //   bool             — defaults to 1; can be omitted
+  //   uint32, fixed32  — 1..32
+  //   uint64, fixed64  — 1..64
+  //   int32, sfixed32  — 1..32 (two's complement)
+  //   int64, sfixed64  — 1..64 (two's complement)
+  //   sint32           — 1..32 (zigzag-encoded then stored unsigned)
+  //   sint64           — 1..64 (zigzag-encoded then stored unsigned)
+  //   enum             — must be enough to hold all defined values (≥ ceil(log2(max_value+1)))
+  //   float            — 16 or 32 (default 32); 16 = IEEE 754 binary16 (lossy)
+  //   double           — 16, 32, or 64 (default 64); lossy when < 64
+  //   repeated <scalar>— bits per element when combined with count_bits
+  //
+  // Not applicable to: string, bytes, message, map.
+  uint32 bits = 1;
+
+  // length_bits: number of bits for the byte-length prefix of a string or bytes field.
+  //
+  // Maximum data length = (2^length_bits - 1) bytes.
+  //
+  // Applicable to:
+  //   string           — required
+  //   bytes            — required
+  //   repeated string  — length_bits per element, combined with count_bits
+  //   repeated bytes   — length_bits per element, combined with count_bits
+  //   map<string, *>   — length_bits for the string value; use key_length_bits for the key
+  //   map<bytes, *>    — length_bits for the bytes value; use key_length_bits for the key
+  uint32 length_bits = 2;
+
+  // count_bits: number of bits for the element count of a repeated field or map field.
+  //
+  // Maximum element count = (2^count_bits - 1).
+  // Required for all repeated and map fields; no default.
+  //
+  // Applicable to: repeated <any>, map<any, any>.
+  uint32 count_bits = 3;
+
+  // key_bits: number of bits for an integer map key.
+  //
+  // Applicable to: map<IntegerType, *>
+  // IntegerType is any of: int32, int64, uint32, uint64, sint32, sint64,
+  //                        fixed32, fixed64, sfixed32, sfixed64, bool.
+  // Encoding follows the same rules as the scalar bits option above.
+  uint32 key_bits = 4;
+
+  // key_length_bits: number of bits for the byte-length prefix of a string or bytes map key.
+  //
+  // Applicable to: map<string, *>, map<bytes, *>.
+  uint32 key_length_bits = 5;
+}
+
+// OneofOptions controls encoding of a oneof group's case discriminator.
+//
+// Usage:
+//   oneof payload {
+//     option (bitpacker.v1.oneof).selector_bits = 2;
+//     uint32 command = 1 [(bitpacker.v1.field).bits = 8];
+//     bytes  raw     = 2 [(bitpacker.v1.field).length_bits = 8];
+//   }
+message OneofOptions {
+  // selector_bits: number of bits for the oneof case discriminator.
+  //
+  // Encoding:
+  //   0               = no field is set
+  //   1               = first field declared in this oneof
+  //   2               = second field declared in this oneof
+  //   …
+  //
+  // Must satisfy: selector_bits >= ceil(log2(N + 1))
+  // where N is the number of fields in the oneof.
+  //
+  // If omitted, defaults to ceil(log2(N + 1)) — the minimum required.
+  uint32 selector_bits = 1;
+}
+
+// Field-level extension. Apply as:
+//   some_field = 1 [(bitpacker.v1.field).bits = 12];
+extend google.protobuf.FieldOptions {
+  FieldOptions field = 50000;
+}
+
+// Oneof-level extension. Apply inside a oneof block as:
+//   option (bitpacker.v1.oneof).selector_bits = 2;
+extend google.protobuf.OneofOptions {
+  OneofOptions oneof = 50001;
+}
