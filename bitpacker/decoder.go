@@ -206,6 +206,25 @@ func (p *Packer) decodeScalar(r *bitReader, fd protoreflect.FieldDescriptor, bit
 		return protoreflect.ValueOfInt64(zagzig64(v)), nil
 
 	case protoreflect.FloatKind:
+		fo := getFieldOpts(fd)
+		if fo.Fixed != nil || fo.Ufixed != nil {
+			fp := fo.Fixed
+			if fp == nil {
+				fp = fo.Ufixed
+			}
+			v, err := r.readBits(int(bitsN))
+			if err != nil {
+				return protoreflect.Value{}, &UnpackError{Field: fieldName, Reason: ErrUnexpectedEOF.Error()}
+			}
+			var floatVal float64
+			if fo.Ufixed != nil {
+				floatVal = float64(v) / math.Pow10(int(fp.GetDecimalPlaces()))
+			} else {
+				signed := int64(v<<(64-bitsN)) >> (64 - bitsN)
+				floatVal = float64(signed) / math.Pow10(int(fp.GetDecimalPlaces()))
+			}
+			return protoreflect.ValueOfFloat32(float32(floatVal)), nil
+		}
 		bits := bitsN
 		if bits == 0 {
 			bits = 32
@@ -226,6 +245,25 @@ func (p *Packer) decodeScalar(r *bitReader, fd protoreflect.FieldDescriptor, bit
 		}
 
 	case protoreflect.DoubleKind:
+		fo := getFieldOpts(fd)
+		if fo.Fixed != nil || fo.Ufixed != nil {
+			fp := fo.Fixed
+			if fp == nil {
+				fp = fo.Ufixed
+			}
+			v, err := r.readBits(int(bitsN))
+			if err != nil {
+				return protoreflect.Value{}, &UnpackError{Field: fieldName, Reason: ErrUnexpectedEOF.Error()}
+			}
+			var floatVal float64
+			if fo.Ufixed != nil {
+				floatVal = float64(v) / math.Pow10(int(fp.GetDecimalPlaces()))
+			} else {
+				signed := int64(v<<(64-bitsN)) >> (64 - bitsN)
+				floatVal = float64(signed) / math.Pow10(int(fp.GetDecimalPlaces()))
+			}
+			return protoreflect.ValueOfFloat64(floatVal), nil
+		}
 		bits := bitsN
 		if bits == 0 {
 			bits = 64

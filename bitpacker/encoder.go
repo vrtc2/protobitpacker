@@ -196,20 +196,48 @@ func (p *Packer) encodeScalar(w *bitWriter, val protoreflect.Value, fd protorefl
 		w.writeBits(zz, int(bitsN))
 
 	case protoreflect.FloatKind:
-		f := float32(val.Float())
+		f := float64(val.Float())
+		fo := getFieldOpts(fd)
+		if fo.Fixed != nil || fo.Ufixed != nil {
+			fp := fo.Fixed
+			if fp == nil {
+				fp = fo.Ufixed
+			}
+			scaled := math.Round(f * math.Pow10(int(fp.GetDecimalPlaces())))
+			if fo.Ufixed != nil {
+				w.writeBits(uint64(scaled), int(bitsN))
+			} else {
+				w.writeBits(uint64(int64(scaled)), int(bitsN))
+			}
+			break
+		}
 		bits := bitsN
 		if bits == 0 {
 			bits = 32
 		}
 		switch bits {
 		case 16:
-			w.writeBits(uint64(float32ToFloat16(f)), 16)
+			w.writeBits(uint64(float32ToFloat16(float32(f))), 16)
 		default: // 32
-			w.writeBits(uint64(math.Float32bits(f)), 32)
+			w.writeBits(uint64(math.Float32bits(float32(f))), 32)
 		}
 
 	case protoreflect.DoubleKind:
 		f := val.Float()
+		fo := getFieldOpts(fd)
+		if fo.Fixed != nil || fo.Ufixed != nil {
+			fp := fo.Fixed
+			if fp == nil {
+				fp = fo.Ufixed
+			}
+			scaled := math.Round(f * math.Pow10(int(fp.GetDecimalPlaces())))
+			if fo.Ufixed != nil {
+				w.writeBits(uint64(scaled), int(bitsN))
+			} else {
+				w.writeBits(uint64(int64(scaled)), int(bitsN))
+			}
+			break
+		}
 		bits := bitsN
 		if bits == 0 {
 			bits = 64

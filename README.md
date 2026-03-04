@@ -164,8 +164,9 @@ MyEnum status    = 3 [(bitpacker.v1.field).bits = 2];  // 4 enum values
 ```
 
 Applicable to: `bool` (default 1, annotation optional), all integer scalars, `enum`,
-`float` (16 or 32, default 32), `double` (16, 32, or 64, default 64), and as the
-element width for `repeated` numerics.
+`float` (16 or 32, default 32; or 1..32 when `fixed`/`ufixed` is set),
+`double` (16, 32, or 64, default 64; or 1..64 when `fixed`/`ufixed` is set),
+and as the element width for `repeated` numerics.
 
 ### `(bitpacker.v1.field).length_bits`
 
@@ -207,6 +208,43 @@ map<string, uint32> config = 2 [
 ];
 ```
 
+### `(bitpacker.v1.field).fixed` and `(bitpacker.v1.field).ufixed`
+
+Fixed-point decimal encoding for `float` and `double` fields. Instead of raw IEEE 754
+bits, the value is scaled by `10^decimal_places`, rounded to the nearest integer, and
+stored in `bits` bits. On decode the integer is divided back by `10^decimal_places`.
+
+- **`fixed`** — signed (two's complement). Supports negative values.
+  Range: `[−2^(bits−1) / 10^dp .. (2^(bits−1)−1) / 10^dp]`
+- **`ufixed`** — unsigned. Non-negative values only; full positive range.
+  Range: `[0 .. (2^bits − 1) / 10^dp]`
+
+`bits` must be set explicitly (1..32 for `float`, 1..64 for `double`).
+`fixed` and `ufixed` are mutually exclusive.
+
+```protobuf
+// Temperature –51.2..51.1 °C, 0.1 °C steps, 10 bits signed
+float temperature = 1 [(bitpacker.v1.field) = {
+  bits: 10,
+  fixed: { decimal_places: 1 }
+}];
+
+// Distance 0..655.35 m, 0.01 m steps, 16 bits unsigned
+float distance = 2 [(bitpacker.v1.field) = {
+  bits: 16,
+  ufixed: { decimal_places: 2 }
+}];
+```
+
+**Wire format:**
+
+```
+encode: value_on_wire = round(float_value × 10^decimal_places)
+        stored as bits-wide signed (fixed) or unsigned (ufixed) integer
+
+decode: float_value = integer_from_wire ÷ 10^decimal_places
+```
+
 ### `(bitpacker.v1.oneof).selector_bits`
 
 Bit width of the oneof discriminator. Defaults to `ceil(log2(N+1))` where N is the
@@ -231,7 +269,7 @@ delimiters, or metadata. The stream is zero-padded to a byte boundary at the end
 
 ```
 ┌──────────────────────────────────────────────┐
-│ field₁ bits │ field₂ bits │ … │ 0-padding   │
+│ field₁ bits │ field₂ bits │ … │ 0-padding    │
 └──────────────────────────────────────────────┘
    MSB first     MSB first          0–7 bits
 ```
@@ -255,8 +293,8 @@ delimiters, or metadata. The stream is zero-padded to a byte boundary at the end
 | `uint32`, `uint64`, `fixed32`, `fixed64` | N-bit unsigned, MSB first |
 | `int32`, `int64`, `sfixed32`, `sfixed64` | N-bit two's complement, MSB first |
 | `sint32`, `sint64` | zigzag-encoded, then N-bit unsigned, MSB first |
-| `float` | 32-bit (IEEE 754 binary32) or 16-bit (binary16, lossy) |
-| `double` | 64-bit, 32-bit (lossy), or 16-bit (lossy) |
+| `float` | 32-bit (IEEE 754 binary32) or 16-bit (binary16, lossy); or fixed-point integer when `fixed`/`ufixed` is set |
+| `double` | 64-bit, 32-bit (lossy), or 16-bit (lossy); or fixed-point integer when `fixed`/`ufixed` is set |
 | `string`, `bytes` | `length_bits`-wide byte count, then raw bytes |
 | `enum` | N-bit unsigned (proto enum number) |
 | `message` | recursive pack (preceded by presence bit when not in oneof) |

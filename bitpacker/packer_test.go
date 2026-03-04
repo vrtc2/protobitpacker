@@ -262,10 +262,69 @@ func TestValidate(t *testing.T) {
 		&examplev1.Packet{},
 		&examplev1.Burst{},
 		&examplev1.Config{},
+		&examplev1.FloatSample{},
 	}
 	for _, m := range validMsgs {
 		if err := p.Validate(m.ProtoReflect().Descriptor()); err != nil {
 			t.Errorf("Validate(%T) unexpected error: %v", m, err)
 		}
+	}
+}
+
+// TestFixedPointFloat tests roundtrip encoding for fixed/ufixed float fields.
+// Values are chosen to be exactly representable in IEEE 754 to allow proto.Equal comparison.
+func TestFixedPointFloat(t *testing.T) {
+	cases := []struct {
+		name string
+		msg  *examplev1.FloatSample
+	}{
+		{
+			name: "positive temperature",
+			msg:  &examplev1.FloatSample{Temperature: 25.0, Distance: 0, Altitude: 0},
+		},
+		{
+			name: "negative temperature",
+			msg:  &examplev1.FloatSample{Temperature: -10.5, Distance: 0, Altitude: 0},
+		},
+		{
+			name: "zero temperature",
+			msg:  &examplev1.FloatSample{Temperature: 0, Distance: 0, Altitude: 0},
+		},
+		{
+			name: "ufixed distance",
+			msg:  &examplev1.FloatSample{Temperature: 0, Distance: 100.0, Altitude: 0},
+		},
+		{
+			name: "ufixed distance max-ish",
+			msg:  &examplev1.FloatSample{Temperature: 0, Distance: 655.0, Altitude: 0},
+		},
+		{
+			name: "double altitude positive",
+			msg:  &examplev1.FloatSample{Temperature: 0, Distance: 0, Altitude: 1000.0},
+		},
+		{
+			name: "double altitude negative",
+			msg:  &examplev1.FloatSample{Temperature: 0, Distance: 0, Altitude: -500.5},
+		},
+		{
+			name: "all fields",
+			msg:  &examplev1.FloatSample{Temperature: -10.5, Distance: 250.0, Altitude: 123.5},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := bitpacker.Pack(tc.msg)
+			if err != nil {
+				t.Fatalf("Pack error: %v", err)
+			}
+			got := &examplev1.FloatSample{}
+			if err := bitpacker.Unpack(data, got); err != nil {
+				t.Fatalf("Unpack error: %v", err)
+			}
+			if !proto.Equal(tc.msg, got) {
+				t.Errorf("roundtrip mismatch:\n  want: %v\n   got: %v", tc.msg, got)
+			}
+		})
 	}
 }

@@ -84,6 +84,26 @@ type FieldOptions struct {
 	//
 	// Applicable to: map<string, *>, map<bytes, *>.
 	KeyLengthBits uint32 `protobuf:"varint,5,opt,name=key_length_bits,json=keyLengthBits,proto3" json:"key_length_bits,omitempty"`
+	// fixed: encode a float/double field as a signed fixed-point decimal integer.
+	//
+	// Supports negative values (signed two's complement). Range:
+	//
+	//	[-2^(bits-1) / 10^decimal_places .. (2^(bits-1)-1) / 10^decimal_places]
+	//
+	// Applicable to: float, double
+	// Requires: bits set explicitly (1..32 for float, 1..64 for double).
+	// Mutually exclusive with ufixed.
+	Fixed *FieldOptions_FixedPoint `protobuf:"bytes,6,opt,name=fixed,proto3" json:"fixed,omitempty"`
+	// ufixed: encode a float/double field as an unsigned fixed-point decimal integer.
+	//
+	// Non-negative values only. Full positive range:
+	//
+	//	[0 .. (2^bits - 1) / 10^decimal_places]
+	//
+	// Applicable to: float, double
+	// Requires: bits set explicitly (1..32 for float, 1..64 for double).
+	// Mutually exclusive with fixed.
+	Ufixed        *FieldOptions_FixedPoint `protobuf:"bytes,7,opt,name=ufixed,proto3" json:"ufixed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -153,6 +173,20 @@ func (x *FieldOptions) GetKeyLengthBits() uint32 {
 	return 0
 }
 
+func (x *FieldOptions) GetFixed() *FieldOptions_FixedPoint {
+	if x != nil {
+		return x.Fixed
+	}
+	return nil
+}
+
+func (x *FieldOptions) GetUfixed() *FieldOptions_FixedPoint {
+	if x != nil {
+		return x.Ufixed
+	}
+	return nil
+}
+
 // OneofOptions controls encoding of a oneof group's case discriminator.
 //
 // Usage:
@@ -219,6 +253,56 @@ func (x *OneofOptions) GetSelectorBits() uint32 {
 	return 0
 }
 
+// FixedPoint groups options for fixed-point decimal encoding of float/double fields.
+type FieldOptions_FixedPoint struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// decimal_places: number of decimal digits to preserve after the decimal point.
+	//
+	// The float value is multiplied by 10^decimal_places, rounded to the nearest integer,
+	// and stored as an integer of (bits) bits. On decode, the integer is divided back
+	// by 10^decimal_places to restore the approximate original value.
+	DecimalPlaces uint32 `protobuf:"varint,1,opt,name=decimal_places,json=decimalPlaces,proto3" json:"decimal_places,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FieldOptions_FixedPoint) Reset() {
+	*x = FieldOptions_FixedPoint{}
+	mi := &file_bitpacker_v1_options_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FieldOptions_FixedPoint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FieldOptions_FixedPoint) ProtoMessage() {}
+
+func (x *FieldOptions_FixedPoint) ProtoReflect() protoreflect.Message {
+	mi := &file_bitpacker_v1_options_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FieldOptions_FixedPoint.ProtoReflect.Descriptor instead.
+func (*FieldOptions_FixedPoint) Descriptor() ([]byte, []int) {
+	return file_bitpacker_v1_options_proto_rawDescGZIP(), []int{0, 0}
+}
+
+func (x *FieldOptions_FixedPoint) GetDecimalPlaces() uint32 {
+	if x != nil {
+		return x.DecimalPlaces
+	}
+	return 0
+}
+
 var file_bitpacker_v1_options_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
@@ -254,7 +338,7 @@ var File_bitpacker_v1_options_proto protoreflect.FileDescriptor
 
 const file_bitpacker_v1_options_proto_rawDesc = "" +
 	"\n" +
-	"\x1abitpacker/v1/options.proto\x12\fbitpacker.v1\x1a google/protobuf/descriptor.proto\"\xa5\x01\n" +
+	"\x1abitpacker/v1/options.proto\x12\fbitpacker.v1\x1a google/protobuf/descriptor.proto\"\xd6\x02\n" +
 	"\fFieldOptions\x12\x12\n" +
 	"\x04bits\x18\x01 \x01(\rR\x04bits\x12\x1f\n" +
 	"\vlength_bits\x18\x02 \x01(\rR\n" +
@@ -262,7 +346,12 @@ const file_bitpacker_v1_options_proto_rawDesc = "" +
 	"\n" +
 	"count_bits\x18\x03 \x01(\rR\tcountBits\x12\x19\n" +
 	"\bkey_bits\x18\x04 \x01(\rR\akeyBits\x12&\n" +
-	"\x0fkey_length_bits\x18\x05 \x01(\rR\rkeyLengthBits\"3\n" +
+	"\x0fkey_length_bits\x18\x05 \x01(\rR\rkeyLengthBits\x12;\n" +
+	"\x05fixed\x18\x06 \x01(\v2%.bitpacker.v1.FieldOptions.FixedPointR\x05fixed\x12=\n" +
+	"\x06ufixed\x18\a \x01(\v2%.bitpacker.v1.FieldOptions.FixedPointR\x06ufixed\x1a3\n" +
+	"\n" +
+	"FixedPoint\x12%\n" +
+	"\x0edecimal_places\x18\x01 \x01(\rR\rdecimalPlaces\"3\n" +
 	"\fOneofOptions\x12#\n" +
 	"\rselector_bits\x18\x01 \x01(\rR\fselectorBits:Q\n" +
 	"\x05field\x12\x1d.google.protobuf.FieldOptions\x18І\x03 \x01(\v2\x1a.bitpacker.v1.FieldOptionsR\x05field:Q\n" +
@@ -281,23 +370,26 @@ func file_bitpacker_v1_options_proto_rawDescGZIP() []byte {
 	return file_bitpacker_v1_options_proto_rawDescData
 }
 
-var file_bitpacker_v1_options_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_bitpacker_v1_options_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_bitpacker_v1_options_proto_goTypes = []any{
 	(*FieldOptions)(nil),              // 0: bitpacker.v1.FieldOptions
 	(*OneofOptions)(nil),              // 1: bitpacker.v1.OneofOptions
-	(*descriptorpb.FieldOptions)(nil), // 2: google.protobuf.FieldOptions
-	(*descriptorpb.OneofOptions)(nil), // 3: google.protobuf.OneofOptions
+	(*FieldOptions_FixedPoint)(nil),   // 2: bitpacker.v1.FieldOptions.FixedPoint
+	(*descriptorpb.FieldOptions)(nil), // 3: google.protobuf.FieldOptions
+	(*descriptorpb.OneofOptions)(nil), // 4: google.protobuf.OneofOptions
 }
 var file_bitpacker_v1_options_proto_depIdxs = []int32{
-	2, // 0: bitpacker.v1.field:extendee -> google.protobuf.FieldOptions
-	3, // 1: bitpacker.v1.oneof:extendee -> google.protobuf.OneofOptions
-	0, // 2: bitpacker.v1.field:type_name -> bitpacker.v1.FieldOptions
-	1, // 3: bitpacker.v1.oneof:type_name -> bitpacker.v1.OneofOptions
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	2, // [2:4] is the sub-list for extension type_name
-	0, // [0:2] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	2, // 0: bitpacker.v1.FieldOptions.fixed:type_name -> bitpacker.v1.FieldOptions.FixedPoint
+	2, // 1: bitpacker.v1.FieldOptions.ufixed:type_name -> bitpacker.v1.FieldOptions.FixedPoint
+	3, // 2: bitpacker.v1.field:extendee -> google.protobuf.FieldOptions
+	4, // 3: bitpacker.v1.oneof:extendee -> google.protobuf.OneofOptions
+	0, // 4: bitpacker.v1.field:type_name -> bitpacker.v1.FieldOptions
+	1, // 5: bitpacker.v1.oneof:type_name -> bitpacker.v1.OneofOptions
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	4, // [4:6] is the sub-list for extension type_name
+	2, // [2:4] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_bitpacker_v1_options_proto_init() }
@@ -311,7 +403,7 @@ func file_bitpacker_v1_options_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bitpacker_v1_options_proto_rawDesc), len(file_bitpacker_v1_options_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 2,
 			NumServices:   0,
 		},

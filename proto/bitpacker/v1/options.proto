@@ -66,6 +66,36 @@ message FieldOptions {
   //
   // Applicable to: map<string, *>, map<bytes, *>.
   uint32 key_length_bits = 5;
+
+  // FixedPoint groups options for fixed-point decimal encoding of float/double fields.
+  message FixedPoint {
+    // decimal_places: number of decimal digits to preserve after the decimal point.
+    //
+    // The float value is multiplied by 10^decimal_places, rounded to the nearest integer,
+    // and stored as an integer of (bits) bits. On decode, the integer is divided back
+    // by 10^decimal_places to restore the approximate original value.
+    uint32 decimal_places = 1;
+  }
+
+  // fixed: encode a float/double field as a signed fixed-point decimal integer.
+  //
+  // Supports negative values (signed two's complement). Range:
+  //   [-2^(bits-1) / 10^decimal_places .. (2^(bits-1)-1) / 10^decimal_places]
+  //
+  // Applicable to: float, double
+  // Requires: bits set explicitly (1..32 for float, 1..64 for double).
+  // Mutually exclusive with ufixed.
+  FixedPoint fixed = 6;
+
+  // ufixed: encode a float/double field as an unsigned fixed-point decimal integer.
+  //
+  // Non-negative values only. Full positive range:
+  //   [0 .. (2^bits - 1) / 10^decimal_places]
+  //
+  // Applicable to: float, double
+  // Requires: bits set explicitly (1..32 for float, 1..64 for double).
+  // Mutually exclusive with fixed.
+  FixedPoint ufixed = 7;
 }
 
 // OneofOptions controls encoding of a oneof group's case discriminator.

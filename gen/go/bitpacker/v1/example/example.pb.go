@@ -401,6 +401,81 @@ func (x *Config) GetSettings() map[string]uint32 {
 	return nil
 }
 
+// FloatSample demonstrates fixed-point decimal encoding for float and double fields.
+//
+// Uses fixed/ufixed instead of raw IEEE 754 bits for compact, human-scale precision.
+//
+//	temperature: 10 bits signed  → range –51.2..51.1 °C  (0.1 °C steps) — 1.25 bytes
+//	distance:    16 bits unsigned → range   0..655.35 m   (0.01 m steps) — 2 bytes
+//	altitude:    15 bits signed   → range –1638.4..1638.3 m (0.1 m steps) — 1.875 bytes
+//
+// Total: 41 bits → 6 bytes (vs ~20 bytes standard protobuf)
+type FloatSample struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Ambient temperature in °C, 0.1 °C precision, –51.2..51.1 °C range.
+	// Stored as signed 10-bit integer scaled by 10.
+	Temperature float32 `protobuf:"fixed32,1,opt,name=temperature,proto3" json:"temperature,omitempty"`
+	// Distance in meters, 0.01 m precision, 0..655.35 m range.
+	// Stored as unsigned 16-bit integer scaled by 100.
+	Distance float32 `protobuf:"fixed32,2,opt,name=distance,proto3" json:"distance,omitempty"`
+	// Altitude in meters (double), 0.1 m precision, –1638.4..1638.3 m range.
+	// Stored as signed 15-bit integer scaled by 10.
+	Altitude      float64 `protobuf:"fixed64,3,opt,name=altitude,proto3" json:"altitude,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FloatSample) Reset() {
+	*x = FloatSample{}
+	mi := &file_bitpacker_v1_example_example_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FloatSample) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FloatSample) ProtoMessage() {}
+
+func (x *FloatSample) ProtoReflect() protoreflect.Message {
+	mi := &file_bitpacker_v1_example_example_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FloatSample.ProtoReflect.Descriptor instead.
+func (*FloatSample) Descriptor() ([]byte, []int) {
+	return file_bitpacker_v1_example_example_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *FloatSample) GetTemperature() float32 {
+	if x != nil {
+		return x.Temperature
+	}
+	return 0
+}
+
+func (x *FloatSample) GetDistance() float32 {
+	if x != nil {
+		return x.Distance
+	}
+	return 0
+}
+
+func (x *FloatSample) GetAltitude() float64 {
+	if x != nil {
+		return x.Altitude
+	}
+	return 0
+}
+
 var File_bitpacker_v1_example_example_proto protoreflect.FileDescriptor
 
 const file_bitpacker_v1_example_example_proto_rawDesc = "" +
@@ -430,7 +505,15 @@ const file_bitpacker_v1_example_example_proto_rawDesc = "" +
 	"\x82\xb5\x18\x06\b\x10\x18\x06(\x05R\bsettings\x1a;\n" +
 	"\rSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01*w\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\x8b\x01\n" +
+	"\vFloatSample\x12,\n" +
+	"\vtemperature\x18\x01 \x01(\x02B\n" +
+	"\x82\xb5\x18\x06\b\n" +
+	"2\x02\b\x01R\vtemperature\x12&\n" +
+	"\bdistance\x18\x02 \x01(\x02B\n" +
+	"\x82\xb5\x18\x06\b\x10:\x02\b\x02R\bdistance\x12&\n" +
+	"\baltitude\x18\x03 \x01(\x01B\n" +
+	"\x82\xb5\x18\x06\b\x0f2\x02\b\x01R\baltitude*w\n" +
 	"\fSensorStatus\x12\x1d\n" +
 	"\x19SENSOR_STATUS_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10SENSOR_STATUS_OK\x10\x01\x12\x19\n" +
@@ -451,19 +534,20 @@ func file_bitpacker_v1_example_example_proto_rawDescGZIP() []byte {
 }
 
 var file_bitpacker_v1_example_example_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_bitpacker_v1_example_example_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_bitpacker_v1_example_example_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_bitpacker_v1_example_example_proto_goTypes = []any{
 	(SensorStatus)(0),     // 0: bitpacker.v1.example.SensorStatus
 	(*SensorReading)(nil), // 1: bitpacker.v1.example.SensorReading
 	(*Packet)(nil),        // 2: bitpacker.v1.example.Packet
 	(*Burst)(nil),         // 3: bitpacker.v1.example.Burst
 	(*Config)(nil),        // 4: bitpacker.v1.example.Config
-	nil,                   // 5: bitpacker.v1.example.Config.SettingsEntry
+	(*FloatSample)(nil),   // 5: bitpacker.v1.example.FloatSample
+	nil,                   // 6: bitpacker.v1.example.Config.SettingsEntry
 }
 var file_bitpacker_v1_example_example_proto_depIdxs = []int32{
 	0, // 0: bitpacker.v1.example.SensorReading.status:type_name -> bitpacker.v1.example.SensorStatus
 	1, // 1: bitpacker.v1.example.Burst.readings:type_name -> bitpacker.v1.example.SensorReading
-	5, // 2: bitpacker.v1.example.Config.settings:type_name -> bitpacker.v1.example.Config.SettingsEntry
+	6, // 2: bitpacker.v1.example.Config.settings:type_name -> bitpacker.v1.example.Config.SettingsEntry
 	3, // [3:3] is the sub-list for method output_type
 	3, // [3:3] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name
@@ -488,7 +572,7 @@ func file_bitpacker_v1_example_example_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bitpacker_v1_example_example_proto_rawDesc), len(file_bitpacker_v1_example_example_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

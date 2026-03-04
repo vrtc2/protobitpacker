@@ -96,3 +96,35 @@ message Config {
     (bitpacker.v1.field).bits = 16
   ];
 }
+
+// FloatSample demonstrates fixed-point decimal encoding for float and double fields.
+//
+// Uses fixed/ufixed instead of raw IEEE 754 bits for compact, human-scale precision.
+//
+//   temperature: 10 bits signed  → range –51.2..51.1 °C  (0.1 °C steps) — 1.25 bytes
+//   distance:    16 bits unsigned → range   0..655.35 m   (0.01 m steps) — 2 bytes
+//   altitude:    15 bits signed   → range –1638.4..1638.3 m (0.1 m steps) — 1.875 bytes
+//
+// Total: 41 bits → 6 bytes (vs ~20 bytes standard protobuf)
+message FloatSample {
+  // Ambient temperature in °C, 0.1 °C precision, –51.2..51.1 °C range.
+  // Stored as signed 10-bit integer scaled by 10.
+  float temperature = 1 [(bitpacker.v1.field) = {
+    bits: 10,
+    fixed: { decimal_places: 1 }
+  }];
+
+  // Distance in meters, 0.01 m precision, 0..655.35 m range.
+  // Stored as unsigned 16-bit integer scaled by 100.
+  float distance = 2 [(bitpacker.v1.field) = {
+    bits: 16,
+    ufixed: { decimal_places: 2 }
+  }];
+
+  // Altitude in meters (double), 0.1 m precision, –1638.4..1638.3 m range.
+  // Stored as signed 15-bit integer scaled by 10.
+  double altitude = 3 [(bitpacker.v1.field) = {
+    bits: 15,
+    fixed: { decimal_places: 1 }
+  }];
+}

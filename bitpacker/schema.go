@@ -190,11 +190,27 @@ func validateScalarUnit(u *scalarFieldUnit, fd protoreflect.FieldDescriptor, md 
 			return &ValidationError{Message: msgName, Field: fieldName, Reason: "integer field requires bits > 0"}
 		}
 	case protoreflect.FloatKind:
-		if u.bits != 0 && u.bits != 16 && u.bits != 32 {
+		fo := getFieldOpts(fd)
+		if fo.Fixed != nil || fo.Ufixed != nil {
+			if fo.Fixed != nil && fo.Ufixed != nil {
+				return &ValidationError{Message: msgName, Field: fieldName, Reason: "float field: fixed and ufixed are mutually exclusive"}
+			}
+			if u.bits == 0 || u.bits > 32 {
+				return &ValidationError{Message: msgName, Field: fieldName, Reason: "float field with fixed/ufixed: bits must be 1..32"}
+			}
+		} else if u.bits != 0 && u.bits != 16 && u.bits != 32 {
 			return &ValidationError{Message: msgName, Field: fieldName, Reason: "float field: bits must be 0, 16, or 32"}
 		}
 	case protoreflect.DoubleKind:
-		if u.bits != 0 && u.bits != 16 && u.bits != 32 && u.bits != 64 {
+		fo := getFieldOpts(fd)
+		if fo.Fixed != nil || fo.Ufixed != nil {
+			if fo.Fixed != nil && fo.Ufixed != nil {
+				return &ValidationError{Message: msgName, Field: fieldName, Reason: "double field: fixed and ufixed are mutually exclusive"}
+			}
+			if u.bits == 0 || u.bits > 64 {
+				return &ValidationError{Message: msgName, Field: fieldName, Reason: "double field with fixed/ufixed: bits must be 1..64"}
+			}
+		} else if u.bits != 0 && u.bits != 16 && u.bits != 32 && u.bits != 64 {
 			return &ValidationError{Message: msgName, Field: fieldName, Reason: "double field: bits must be 0, 16, 32, or 64"}
 		}
 	case protoreflect.StringKind, protoreflect.BytesKind:
