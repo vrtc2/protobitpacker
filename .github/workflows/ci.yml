@@ -27,14 +27,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - name: Fetch all branches
-        run: git fetch --all
       - uses: bufbuild/buf-setup-action@v1
       - run: buf lint
-      - if: github.event_name == 'pull_request'
-        run: buf breaking --against '.git#branch=${{ github.event.pull_request.base.ref }}'
+      - run: buf breaking --against 'buf.build/vrtc2/protobitpacker'
       - uses: actions/setup-go@v5
         with:
           go-version: stable
