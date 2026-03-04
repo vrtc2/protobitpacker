@@ -28,16 +28,17 @@ func NewPacker() *Packer {
 }
 
 // Pack serialises msg into a bit-packed byte slice.
-// Returns *PackError if a value is out of range for its declared bit width.
+// strategy is the default overflow handling for all fields; per-field annotations override it.
+// Returns *PackError if a value is out of range and strategy is OverflowError.
 // Returns *ValidationError if a required annotation is missing.
-func (p *Packer) Pack(msg proto.Message) ([]byte, error) {
+func (p *Packer) Pack(msg proto.Message, strategy OverflowStrategy) ([]byte, error) {
 	ref := msg.ProtoReflect()
 	schema, err := p.getOrAnalyze(ref.Descriptor())
 	if err != nil {
 		return nil, err
 	}
 	w := &bitWriter{}
-	if err := p.encodeMessage(w, ref, schema); err != nil {
+	if err := p.encodeMessage(w, ref, schema, strategy); err != nil {
 		return nil, err
 	}
 	return w.bytes(), nil
@@ -93,7 +94,10 @@ func (p *Packer) getOrAnalyze(md protoreflect.MessageDescriptor) (*messageSchema
 var Default = NewPacker()
 
 // Pack serialises msg using the default Packer.
-func Pack(msg proto.Message) ([]byte, error) { return Default.Pack(msg) }
+// strategy is the default overflow handling; use OverflowError for the previous behaviour.
+func Pack(msg proto.Message, strategy OverflowStrategy) ([]byte, error) {
+	return Default.Pack(msg, strategy)
+}
 
 // Unpack deserialises bit-packed data into msg using the default Packer.
 func Unpack(data []byte, msg proto.Message) error { return Default.Unpack(data, msg) }

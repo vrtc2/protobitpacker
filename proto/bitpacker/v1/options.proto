@@ -6,6 +6,24 @@ import "google/protobuf/descriptor.proto";
 
 option go_package = "github.com/vrtc2/protobitpacker/gen/go/bitpacker/v1;bitpackerv1";
 
+// OverflowStrategy controls what happens when a value exceeds its declared bit width.
+enum OverflowStrategy {
+  // OVERFLOW_STRATEGY_UNSPECIFIED means: inherit the pack-level default strategy.
+  OVERFLOW_STRATEGY_UNSPECIFIED = 0;
+  // OVERFLOW_STRATEGY_ERROR returns an error (current / default behaviour).
+  OVERFLOW_STRATEGY_ERROR = 1;
+  // OVERFLOW_STRATEGY_MODULO wraps the value: v % 2^bits.
+  OVERFLOW_STRATEGY_MODULO = 2;
+  // OVERFLOW_STRATEGY_CLAMP saturates to the maximum (or minimum) representable value.
+  OVERFLOW_STRATEGY_CLAMP = 3;
+  // OVERFLOW_STRATEGY_CROP_LEFT keeps the last N bytes/elements when length/count overflows.
+  // For numeric types falls back to CLAMP.
+  OVERFLOW_STRATEGY_CROP_LEFT = 4;
+  // OVERFLOW_STRATEGY_CROP_RIGHT keeps the first N bytes/elements when length/count overflows.
+  // For numeric types falls back to CLAMP.
+  OVERFLOW_STRATEGY_CROP_RIGHT = 5;
+}
+
 // FieldOptions controls how a single field is encoded in the bit-packed stream.
 //
 // Usage:
@@ -96,6 +114,12 @@ message FieldOptions {
   // Requires: bits set explicitly (1..32 for float, 1..64 for double).
   // Mutually exclusive with fixed.
   FixedPoint ufixed = 7;
+
+  // overflow: per-field overflow strategy override.
+  //
+  // When set to a value other than OVERFLOW_STRATEGY_UNSPECIFIED, this overrides
+  // the pack-level default strategy for this individual field.
+  OverflowStrategy overflow = 8;
 }
 
 // OneofOptions controls encoding of a oneof group's case discriminator.

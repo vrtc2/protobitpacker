@@ -355,6 +355,65 @@ message Config {
 
 ---
 
+## Overflow Handling
+
+By default, packing a value that exceeds its declared bit width returns a `*PackError`
+and the entire `Pack` call fails. For live telemetry — where one out-of-range sensor
+value would otherwise drop the whole packet — you can configure a more lenient strategy.
+
+### Pack-level default
+
+```go
+// Preserve the error-on-overflow behaviour (default)
+data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+
+// Wrap overflowing integers, crop overflowing strings/slices
+data, err := bitpacker.Pack(msg, bitpacker.OverflowModulo)
+
+// Saturate integers to max/min, truncate strings/slices to max length
+data, err := bitpacker.Pack(msg, bitpacker.OverflowClamp)
+
+// String/bytes/repeated: keep last N; integers: clamp
+data, err := bitpacker.Pack(msg, bitpacker.OverflowCropLeft)
+
+// String/bytes/repeated: keep first N; integers: clamp (same as Clamp for numbers)
+data, err := bitpacker.Pack(msg, bitpacker.OverflowCropRight)
+```
+
+### Per-field override
+
+Import and use the `OverflowStrategy` enum in your `.proto` file to override the
+pack-level default for a specific field:
+
+```protobuf
+import "bitpacker/v1/options.proto";
+
+message Telemetry {
+  // Clamp this field even if the pack-level strategy is OverflowModulo
+  uint32 voltage_mv = 1 [
+    (bitpacker.v1.field).bits     = 12,
+    (bitpacker.v1.field).overflow = OVERFLOW_STRATEGY_CLAMP
+  ];
+}
+```
+
+`OVERFLOW_STRATEGY_UNSPECIFIED` (the default for proto3 enums) means "inherit the
+pack-level strategy", so you only need to annotate fields that differ from the default.
+
+### Strategy semantics
+
+| Data kind | `OverflowModulo` | `OverflowClamp` | `OverflowCropLeft` | `OverflowCropRight` |
+|---|---|---|---|---|
+| uint / fixed (unsigned) | `v & mask` | `min(v, 2ⁿ−1)` | → Clamp | → Clamp |
+| int / sfixed (signed) | two's-complement wrap | saturate to `±(2ⁿ⁻¹−1)` | → Clamp | → Clamp |
+| sint (zigzag) | modulo on zigzag value | clamp zigzag value | → Clamp | → Clamp |
+| enum | `v & mask` | `min(v, 2ⁿ−1)` | → Clamp | → Clamp |
+| fixed-point float | wrap scaled integer | clamp scaled integer | → Clamp | → Clamp |
+| string / bytes | keep `len % max` bytes | keep first `max` bytes | keep **last** `max` bytes | keep **first** `max` bytes |
+| repeated / map count | write `count % max` elems | write first `max` elems | write **last** `max` elems | write **first** `max` elems |
+
+---
+
 ## Limitations
 
 - **No schema evolution.** Any change to field numbers, annotations, or oneof layouts

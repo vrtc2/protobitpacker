@@ -22,6 +22,73 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// OverflowStrategy controls what happens when a value exceeds its declared bit width.
+type OverflowStrategy int32
+
+const (
+	// OVERFLOW_STRATEGY_UNSPECIFIED means: inherit the pack-level default strategy.
+	OverflowStrategy_OVERFLOW_STRATEGY_UNSPECIFIED OverflowStrategy = 0
+	// OVERFLOW_STRATEGY_ERROR returns an error (current / default behaviour).
+	OverflowStrategy_OVERFLOW_STRATEGY_ERROR OverflowStrategy = 1
+	// OVERFLOW_STRATEGY_MODULO wraps the value: v % 2^bits.
+	OverflowStrategy_OVERFLOW_STRATEGY_MODULO OverflowStrategy = 2
+	// OVERFLOW_STRATEGY_CLAMP saturates to the maximum (or minimum) representable value.
+	OverflowStrategy_OVERFLOW_STRATEGY_CLAMP OverflowStrategy = 3
+	// OVERFLOW_STRATEGY_CROP_LEFT keeps the last N bytes/elements when length/count overflows.
+	// For numeric types falls back to CLAMP.
+	OverflowStrategy_OVERFLOW_STRATEGY_CROP_LEFT OverflowStrategy = 4
+	// OVERFLOW_STRATEGY_CROP_RIGHT keeps the first N bytes/elements when length/count overflows.
+	// For numeric types falls back to CLAMP.
+	OverflowStrategy_OVERFLOW_STRATEGY_CROP_RIGHT OverflowStrategy = 5
+)
+
+// Enum value maps for OverflowStrategy.
+var (
+	OverflowStrategy_name = map[int32]string{
+		0: "OVERFLOW_STRATEGY_UNSPECIFIED",
+		1: "OVERFLOW_STRATEGY_ERROR",
+		2: "OVERFLOW_STRATEGY_MODULO",
+		3: "OVERFLOW_STRATEGY_CLAMP",
+		4: "OVERFLOW_STRATEGY_CROP_LEFT",
+		5: "OVERFLOW_STRATEGY_CROP_RIGHT",
+	}
+	OverflowStrategy_value = map[string]int32{
+		"OVERFLOW_STRATEGY_UNSPECIFIED": 0,
+		"OVERFLOW_STRATEGY_ERROR":       1,
+		"OVERFLOW_STRATEGY_MODULO":      2,
+		"OVERFLOW_STRATEGY_CLAMP":       3,
+		"OVERFLOW_STRATEGY_CROP_LEFT":   4,
+		"OVERFLOW_STRATEGY_CROP_RIGHT":  5,
+	}
+)
+
+func (x OverflowStrategy) Enum() *OverflowStrategy {
+	p := new(OverflowStrategy)
+	*p = x
+	return p
+}
+
+func (x OverflowStrategy) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (OverflowStrategy) Descriptor() protoreflect.EnumDescriptor {
+	return file_bitpacker_v1_options_proto_enumTypes[0].Descriptor()
+}
+
+func (OverflowStrategy) Type() protoreflect.EnumType {
+	return &file_bitpacker_v1_options_proto_enumTypes[0]
+}
+
+func (x OverflowStrategy) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use OverflowStrategy.Descriptor instead.
+func (OverflowStrategy) EnumDescriptor() ([]byte, []int) {
+	return file_bitpacker_v1_options_proto_rawDescGZIP(), []int{0}
+}
+
 // FieldOptions controls how a single field is encoded in the bit-packed stream.
 //
 // Usage:
@@ -103,7 +170,12 @@ type FieldOptions struct {
 	// Applicable to: float, double
 	// Requires: bits set explicitly (1..32 for float, 1..64 for double).
 	// Mutually exclusive with fixed.
-	Ufixed        *FieldOptions_FixedPoint `protobuf:"bytes,7,opt,name=ufixed,proto3" json:"ufixed,omitempty"`
+	Ufixed *FieldOptions_FixedPoint `protobuf:"bytes,7,opt,name=ufixed,proto3" json:"ufixed,omitempty"`
+	// overflow: per-field overflow strategy override.
+	//
+	// When set to a value other than OVERFLOW_STRATEGY_UNSPECIFIED, this overrides
+	// the pack-level default strategy for this individual field.
+	Overflow      OverflowStrategy `protobuf:"varint,8,opt,name=overflow,proto3,enum=bitpacker.v1.OverflowStrategy" json:"overflow,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -185,6 +257,13 @@ func (x *FieldOptions) GetUfixed() *FieldOptions_FixedPoint {
 		return x.Ufixed
 	}
 	return nil
+}
+
+func (x *FieldOptions) GetOverflow() OverflowStrategy {
+	if x != nil {
+		return x.Overflow
+	}
+	return OverflowStrategy_OVERFLOW_STRATEGY_UNSPECIFIED
 }
 
 // OneofOptions controls encoding of a oneof group's case discriminator.
@@ -338,7 +417,7 @@ var File_bitpacker_v1_options_proto protoreflect.FileDescriptor
 
 const file_bitpacker_v1_options_proto_rawDesc = "" +
 	"\n" +
-	"\x1abitpacker/v1/options.proto\x12\fbitpacker.v1\x1a google/protobuf/descriptor.proto\"\xd6\x02\n" +
+	"\x1abitpacker/v1/options.proto\x12\fbitpacker.v1\x1a google/protobuf/descriptor.proto\"\x92\x03\n" +
 	"\fFieldOptions\x12\x12\n" +
 	"\x04bits\x18\x01 \x01(\rR\x04bits\x12\x1f\n" +
 	"\vlength_bits\x18\x02 \x01(\rR\n" +
@@ -348,12 +427,20 @@ const file_bitpacker_v1_options_proto_rawDesc = "" +
 	"\bkey_bits\x18\x04 \x01(\rR\akeyBits\x12&\n" +
 	"\x0fkey_length_bits\x18\x05 \x01(\rR\rkeyLengthBits\x12;\n" +
 	"\x05fixed\x18\x06 \x01(\v2%.bitpacker.v1.FieldOptions.FixedPointR\x05fixed\x12=\n" +
-	"\x06ufixed\x18\a \x01(\v2%.bitpacker.v1.FieldOptions.FixedPointR\x06ufixed\x1a3\n" +
+	"\x06ufixed\x18\a \x01(\v2%.bitpacker.v1.FieldOptions.FixedPointR\x06ufixed\x12:\n" +
+	"\boverflow\x18\b \x01(\x0e2\x1e.bitpacker.v1.OverflowStrategyR\boverflow\x1a3\n" +
 	"\n" +
 	"FixedPoint\x12%\n" +
 	"\x0edecimal_places\x18\x01 \x01(\rR\rdecimalPlaces\"3\n" +
 	"\fOneofOptions\x12#\n" +
-	"\rselector_bits\x18\x01 \x01(\rR\fselectorBits:Q\n" +
+	"\rselector_bits\x18\x01 \x01(\rR\fselectorBits*\xd0\x01\n" +
+	"\x10OverflowStrategy\x12!\n" +
+	"\x1dOVERFLOW_STRATEGY_UNSPECIFIED\x10\x00\x12\x1b\n" +
+	"\x17OVERFLOW_STRATEGY_ERROR\x10\x01\x12\x1c\n" +
+	"\x18OVERFLOW_STRATEGY_MODULO\x10\x02\x12\x1b\n" +
+	"\x17OVERFLOW_STRATEGY_CLAMP\x10\x03\x12\x1f\n" +
+	"\x1bOVERFLOW_STRATEGY_CROP_LEFT\x10\x04\x12 \n" +
+	"\x1cOVERFLOW_STRATEGY_CROP_RIGHT\x10\x05:Q\n" +
 	"\x05field\x12\x1d.google.protobuf.FieldOptions\x18І\x03 \x01(\v2\x1a.bitpacker.v1.FieldOptionsR\x05field:Q\n" +
 	"\x05oneof\x12\x1d.google.protobuf.OneofOptions\x18ц\x03 \x01(\v2\x1a.bitpacker.v1.OneofOptionsR\x05oneofB\xb2\x01\n" +
 	"\x10com.bitpacker.v1B\fOptionsProtoP\x01Z?github.com/vrtc2/protobitpacker/gen/go/bitpacker/v1;bitpackerv1\xa2\x02\x03BXX\xaa\x02\fBitpacker.V1\xca\x02\fBitpacker\\V1\xe2\x02\x18Bitpacker\\V1\\GPBMetadata\xea\x02\rBitpacker::V1b\x06proto3"
@@ -370,26 +457,29 @@ func file_bitpacker_v1_options_proto_rawDescGZIP() []byte {
 	return file_bitpacker_v1_options_proto_rawDescData
 }
 
+var file_bitpacker_v1_options_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_bitpacker_v1_options_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_bitpacker_v1_options_proto_goTypes = []any{
-	(*FieldOptions)(nil),              // 0: bitpacker.v1.FieldOptions
-	(*OneofOptions)(nil),              // 1: bitpacker.v1.OneofOptions
-	(*FieldOptions_FixedPoint)(nil),   // 2: bitpacker.v1.FieldOptions.FixedPoint
-	(*descriptorpb.FieldOptions)(nil), // 3: google.protobuf.FieldOptions
-	(*descriptorpb.OneofOptions)(nil), // 4: google.protobuf.OneofOptions
+	(OverflowStrategy)(0),             // 0: bitpacker.v1.OverflowStrategy
+	(*FieldOptions)(nil),              // 1: bitpacker.v1.FieldOptions
+	(*OneofOptions)(nil),              // 2: bitpacker.v1.OneofOptions
+	(*FieldOptions_FixedPoint)(nil),   // 3: bitpacker.v1.FieldOptions.FixedPoint
+	(*descriptorpb.FieldOptions)(nil), // 4: google.protobuf.FieldOptions
+	(*descriptorpb.OneofOptions)(nil), // 5: google.protobuf.OneofOptions
 }
 var file_bitpacker_v1_options_proto_depIdxs = []int32{
-	2, // 0: bitpacker.v1.FieldOptions.fixed:type_name -> bitpacker.v1.FieldOptions.FixedPoint
-	2, // 1: bitpacker.v1.FieldOptions.ufixed:type_name -> bitpacker.v1.FieldOptions.FixedPoint
-	3, // 2: bitpacker.v1.field:extendee -> google.protobuf.FieldOptions
-	4, // 3: bitpacker.v1.oneof:extendee -> google.protobuf.OneofOptions
-	0, // 4: bitpacker.v1.field:type_name -> bitpacker.v1.FieldOptions
-	1, // 5: bitpacker.v1.oneof:type_name -> bitpacker.v1.OneofOptions
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	4, // [4:6] is the sub-list for extension type_name
-	2, // [2:4] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3, // 0: bitpacker.v1.FieldOptions.fixed:type_name -> bitpacker.v1.FieldOptions.FixedPoint
+	3, // 1: bitpacker.v1.FieldOptions.ufixed:type_name -> bitpacker.v1.FieldOptions.FixedPoint
+	0, // 2: bitpacker.v1.FieldOptions.overflow:type_name -> bitpacker.v1.OverflowStrategy
+	4, // 3: bitpacker.v1.field:extendee -> google.protobuf.FieldOptions
+	5, // 4: bitpacker.v1.oneof:extendee -> google.protobuf.OneofOptions
+	1, // 5: bitpacker.v1.field:type_name -> bitpacker.v1.FieldOptions
+	2, // 6: bitpacker.v1.oneof:type_name -> bitpacker.v1.OneofOptions
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	5, // [5:7] is the sub-list for extension type_name
+	3, // [3:5] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_bitpacker_v1_options_proto_init() }
@@ -402,13 +492,14 @@ func file_bitpacker_v1_options_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bitpacker_v1_options_proto_rawDesc), len(file_bitpacker_v1_options_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   3,
 			NumExtensions: 2,
 			NumServices:   0,
 		},
 		GoTypes:           file_bitpacker_v1_options_proto_goTypes,
 		DependencyIndexes: file_bitpacker_v1_options_proto_depIdxs,
+		EnumInfos:         file_bitpacker_v1_options_proto_enumTypes,
 		MessageInfos:      file_bitpacker_v1_options_proto_msgTypes,
 		ExtensionInfos:    file_bitpacker_v1_options_proto_extTypes,
 	}.Build()

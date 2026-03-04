@@ -7,15 +7,15 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-func (p *Packer) encodeMessage(w *bitWriter, msg protoreflect.Message, schema *messageSchema) error {
+func (p *Packer) encodeMessage(w *bitWriter, msg protoreflect.Message, schema *messageSchema, strategy OverflowStrategy) error {
 	for _, unit := range schema.units {
 		switch u := unit.(type) {
 		case *scalarFieldUnit:
-			if err := p.encodeField(w, msg, u); err != nil {
+			if err := p.encodeField(w, msg, u, strategy); err != nil {
 				return err
 			}
 		case *oneofUnit:
-			if err := p.encodeOneof(w, msg, u); err != nil {
+			if err := p.encodeOneof(w, msg, u, strategy); err != nil {
 				return err
 			}
 		}
@@ -23,7 +23,7 @@ func (p *Packer) encodeMessage(w *bitWriter, msg protoreflect.Message, schema *m
 	return nil
 }
 
-func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFieldUnit) error {
+func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFieldUnit, strategy OverflowStrategy) error {
 	fd := u.fd
 
 	if u.isOptional {
@@ -43,7 +43,7 @@ func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFi
 			if err != nil {
 				return err
 			}
-			return p.encodeMessage(w, nested, nestedSchema)
+			return p.encodeMessage(w, nested, nestedSchema, strategy)
 		}
 		w.writeBits(0, 1)
 		return nil
@@ -52,9 +52,31 @@ func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFi
 	if fd.IsList() {
 		list := msg.Get(fd).List()
 		n := list.Len()
+		maxCount := uint64((uint64(1) << u.countBits) - 1)
+		if uint64(n) > maxCount {
+			eff := effectiveStrategy(fd, strategy)
+			switch eff {
+			case OverflowError:
+				return &PackError{Field: string(fd.Name()), Reason: fmt.Sprintf("list length %d overflows count_bits %d", n, u.countBits)}
+			case OverflowModulo:
+				n = int(uint64(n) & maxCount)
+			case OverflowClamp, OverflowCropRight:
+				n = int(maxCount)
+			case OverflowCropLeft:
+				// keep last maxCount elements
+				start := n - int(maxCount)
+				w.writeBits(maxCount, int(u.countBits))
+				for i := start; i < list.Len(); i++ {
+					if err := p.encodeValue(w, list.Get(i), u, strategy); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+		}
 		w.writeBits(uint64(n), int(u.countBits))
 		for i := 0; i < n; i++ {
-			if err := p.encodeValue(w, list.Get(i), u); err != nil {
+			if err := p.encodeValue(w, list.Get(i), u, strategy); err != nil {
 				return err
 			}
 		}
@@ -63,26 +85,43 @@ func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFi
 
 	if fd.IsMap() {
 		m := msg.Get(fd).Map()
-		w.writeBits(uint64(m.Len()), int(u.countBits))
+		mapLen := m.Len()
+		maxCount := uint64((uint64(1) << u.countBits) - 1)
+		if uint64(mapLen) > maxCount {
+			eff := effectiveStrategy(fd, strategy)
+			switch eff {
+			case OverflowError:
+				return &PackError{Field: string(fd.Name()), Reason: fmt.Sprintf("map length %d overflows count_bits %d", mapLen, u.countBits)}
+			default:
+				// For maps, clamp: write only the first maxCount entries
+				mapLen = int(maxCount)
+			}
+		}
+		w.writeBits(uint64(mapLen), int(u.countBits))
+		written := 0
 		var encErr error
 		m.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
+			if written >= mapLen {
+				return false
+			}
 			if err := p.encodeMapKey(w, k, u); err != nil {
 				encErr = err
 				return false
 			}
-			if err := p.encodeValue(w, v, u); err != nil {
+			if err := p.encodeValue(w, v, u, strategy); err != nil {
 				encErr = err
 				return false
 			}
+			written++
 			return true
 		})
 		return encErr
 	}
 
-	return p.encodeValue(w, msg.Get(fd), u)
+	return p.encodeValue(w, msg.Get(fd), u, strategy)
 }
 
-func (p *Packer) encodeOneof(w *bitWriter, msg protoreflect.Message, u *oneofUnit) error {
+func (p *Packer) encodeOneof(w *bitWriter, msg protoreflect.Message, u *oneofUnit, strategy OverflowStrategy) error {
 	whichFd := msg.WhichOneof(u.od)
 	if whichFd == nil {
 		w.writeBits(0, int(u.selectorBits))
@@ -111,13 +150,13 @@ func (p *Packer) encodeOneof(w *bitWriter, msg protoreflect.Message, u *oneofUni
 		if err != nil {
 			return err
 		}
-		return p.encodeMessage(w, nested, nestedSchema)
+		return p.encodeMessage(w, nested, nestedSchema, strategy)
 	}
 
-	return p.encodeValue(w, msg.Get(whichFd), su)
+	return p.encodeValue(w, msg.Get(whichFd), su, strategy)
 }
 
-func (p *Packer) encodeValue(w *bitWriter, val protoreflect.Value, u *scalarFieldUnit) error {
+func (p *Packer) encodeValue(w *bitWriter, val protoreflect.Value, u *scalarFieldUnit, strategy OverflowStrategy) error {
 	fd := u.fd
 
 	// For map values, use the map value descriptor
@@ -126,11 +165,12 @@ func (p *Packer) encodeValue(w *bitWriter, val protoreflect.Value, u *scalarFiel
 		valueFd = fd.MapValue()
 	}
 
-	return p.encodeScalar(w, val, valueFd, u.bits, u.lengthBits)
+	return p.encodeScalar(w, val, valueFd, u.bits, u.lengthBits, strategy)
 }
 
-func (p *Packer) encodeScalar(w *bitWriter, val protoreflect.Value, fd protoreflect.FieldDescriptor, bitsN uint32, lengthBits uint32) error {
+func (p *Packer) encodeScalar(w *bitWriter, val protoreflect.Value, fd protoreflect.FieldDescriptor, bitsN uint32, lengthBits uint32, strategy OverflowStrategy) error {
 	fieldName := string(fd.Name())
+	eff := effectiveStrategy(fd, strategy)
 
 	switch fd.Kind() {
 	case protoreflect.BoolKind:
@@ -142,8 +182,15 @@ func (p *Packer) encodeScalar(w *bitWriter, val protoreflect.Value, fd protorefl
 
 	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
 		v := val.Uint()
-		if bitsN < 64 && v >= (1<<bitsN) {
-			return &PackError{Field: fieldName, Reason: fmt.Sprintf("value %d overflows %d bits", v, bitsN)}
+		if bitsN < 64 && v >= (uint64(1)<<bitsN) {
+			switch eff {
+			case OverflowError:
+				return &PackError{Field: fieldName, Reason: fmt.Sprintf("value %d overflows %d bits", v, bitsN)}
+			case OverflowModulo:
+				v = v & ((uint64(1) << bitsN) - 1)
+			default: // Clamp, CropLeft, CropRight → clamp
+				v = (uint64(1) << bitsN) - 1
+			}
 		}
 		w.writeBits(v, int(bitsN))
 
@@ -152,23 +199,56 @@ func (p *Packer) encodeScalar(w *bitWriter, val protoreflect.Value, fd protorefl
 		minVal := -(int64(1) << (bitsN - 1))
 		maxVal := (int64(1) << (bitsN - 1)) - 1
 		if v < minVal || v > maxVal {
-			return &PackError{Field: fieldName, Reason: fmt.Sprintf("value %d overflows signed %d bits", v, bitsN)}
+			switch eff {
+			case OverflowError:
+				return &PackError{Field: fieldName, Reason: fmt.Sprintf("value %d overflows signed %d bits", v, bitsN)}
+			case OverflowModulo:
+				// two's-complement wrap: mask bitsN bits then sign-extend
+				mask := uint64((uint64(1) << bitsN) - 1)
+				wrapped := uint64(v) & mask
+				// sign-extend
+				if wrapped>>(bitsN-1) != 0 {
+					v = int64(wrapped) | ^int64(mask)
+				} else {
+					v = int64(wrapped)
+				}
+			default: // Clamp, CropLeft, CropRight → clamp
+				if v < minVal {
+					v = minVal
+				} else {
+					v = maxVal
+				}
+			}
 		}
-		mask := uint64((1 << bitsN) - 1)
+		mask := uint64((uint64(1) << bitsN) - 1)
 		w.writeBits(uint64(v)&mask, int(bitsN))
 
 	case protoreflect.Sint32Kind:
 		v := int32(val.Int())
 		zz := zigzag32(v)
-		if bitsN < 64 && uint64(zz) >= (1<<bitsN) {
-			return &PackError{Field: fieldName, Reason: fmt.Sprintf("zigzag value %d overflows %d bits", zz, bitsN)}
+		if bitsN < 64 && uint64(zz) >= (uint64(1)<<bitsN) {
+			switch eff {
+			case OverflowError:
+				return &PackError{Field: fieldName, Reason: fmt.Sprintf("zigzag value %d overflows %d bits", zz, bitsN)}
+			case OverflowModulo:
+				zz = zz & uint32((uint64(1)<<bitsN)-1)
+			default: // Clamp, CropLeft, CropRight → clamp
+				zz = uint32((uint64(1) << bitsN) - 1)
+			}
 		}
 		w.writeBits(uint64(zz), int(bitsN))
 
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		v := val.Uint()
-		if bitsN < 64 && v >= (1<<bitsN) {
-			return &PackError{Field: fieldName, Reason: fmt.Sprintf("value %d overflows %d bits", v, bitsN)}
+		if bitsN < 64 && v >= (uint64(1)<<bitsN) {
+			switch eff {
+			case OverflowError:
+				return &PackError{Field: fieldName, Reason: fmt.Sprintf("value %d overflows %d bits", v, bitsN)}
+			case OverflowModulo:
+				v = v & ((uint64(1) << bitsN) - 1)
+			default: // Clamp, CropLeft, CropRight → clamp
+				v = (uint64(1) << bitsN) - 1
+			}
 		}
 		w.writeBits(v, int(bitsN))
 
@@ -178,35 +258,101 @@ func (p *Packer) encodeScalar(w *bitWriter, val protoreflect.Value, fd protorefl
 			minVal := -(int64(1) << (bitsN - 1))
 			maxVal := (int64(1) << (bitsN - 1)) - 1
 			if v < minVal || v > maxVal {
-				return &PackError{Field: fieldName, Reason: fmt.Sprintf("value %d overflows signed %d bits", v, bitsN)}
+				switch eff {
+				case OverflowError:
+					return &PackError{Field: fieldName, Reason: fmt.Sprintf("value %d overflows signed %d bits", v, bitsN)}
+				case OverflowModulo:
+					mask := (uint64(1) << bitsN) - 1
+					wrapped := uint64(v) & mask
+					if wrapped>>(bitsN-1) != 0 {
+						v = int64(wrapped) | ^int64(mask)
+					} else {
+						v = int64(wrapped)
+					}
+				default: // Clamp, CropLeft, CropRight → clamp
+					if v < minVal {
+						v = minVal
+					} else {
+						v = maxVal
+					}
+				}
 			}
 		}
 		mask := uint64(math.MaxUint64)
 		if bitsN < 64 {
-			mask = (1 << bitsN) - 1
+			mask = (uint64(1) << bitsN) - 1
 		}
 		w.writeBits(uint64(v)&mask, int(bitsN))
 
 	case protoreflect.Sint64Kind:
 		v := val.Int()
 		zz := zigzag64(v)
-		if bitsN < 64 && zz >= (1<<bitsN) {
-			return &PackError{Field: fieldName, Reason: fmt.Sprintf("zigzag value %d overflows %d bits", zz, bitsN)}
+		if bitsN < 64 && zz >= (uint64(1)<<bitsN) {
+			switch eff {
+			case OverflowError:
+				return &PackError{Field: fieldName, Reason: fmt.Sprintf("zigzag value %d overflows %d bits", zz, bitsN)}
+			case OverflowModulo:
+				zz = zz & ((uint64(1) << bitsN) - 1)
+			default: // Clamp, CropLeft, CropRight → clamp
+				zz = (uint64(1) << bitsN) - 1
+			}
 		}
 		w.writeBits(zz, int(bitsN))
 
 	case protoreflect.FloatKind:
 		f := float64(val.Float())
 		fo := getFieldOpts(fd)
-		if fo.Fixed != nil || fo.Ufixed != nil {
-			fp := fo.Fixed
+		if fo.GetFixed() != nil || fo.GetUfixed() != nil {
+			fp := fo.GetFixed()
 			if fp == nil {
-				fp = fo.Ufixed
+				fp = fo.GetUfixed()
 			}
 			scaled := math.Round(f * math.Pow10(int(fp.GetDecimalPlaces())))
-			if fo.Ufixed != nil {
+			if fo.GetUfixed() != nil {
+				// unsigned: check against [0, 2^bits-1]
+				maxV := float64(uint64(1)<<bitsN) - 1
+				if scaled < 0 || scaled > maxV {
+					switch eff {
+					case OverflowError:
+						return &PackError{Field: fieldName, Reason: fmt.Sprintf("ufixed float value %v overflows %d bits", scaled, bitsN)}
+					case OverflowModulo:
+						scaled = math.Mod(scaled, maxV+1)
+						if scaled < 0 {
+							scaled += maxV + 1
+						}
+					default: // Clamp
+						if scaled < 0 {
+							scaled = 0
+						} else {
+							scaled = maxV
+						}
+					}
+				}
 				w.writeBits(uint64(scaled), int(bitsN))
 			} else {
+				// signed fixed-point
+				minV := -float64(int64(1) << (bitsN - 1))
+				maxV := float64(int64(1)<<(bitsN-1)) - 1
+				if scaled < minV || scaled > maxV {
+					switch eff {
+					case OverflowError:
+						return &PackError{Field: fieldName, Reason: fmt.Sprintf("fixed float value %v overflows signed %d bits", scaled, bitsN)}
+					case OverflowModulo:
+						mask := float64(uint64(1) << bitsN)
+						scaled = math.Mod(scaled, mask)
+						if scaled > maxV {
+							scaled -= mask
+						} else if scaled < minV {
+							scaled += mask
+						}
+					default: // Clamp
+						if scaled < minV {
+							scaled = minV
+						} else {
+							scaled = maxV
+						}
+					}
+				}
 				w.writeBits(uint64(int64(scaled)), int(bitsN))
 			}
 			break
@@ -225,15 +371,55 @@ func (p *Packer) encodeScalar(w *bitWriter, val protoreflect.Value, fd protorefl
 	case protoreflect.DoubleKind:
 		f := val.Float()
 		fo := getFieldOpts(fd)
-		if fo.Fixed != nil || fo.Ufixed != nil {
-			fp := fo.Fixed
+		if fo.GetFixed() != nil || fo.GetUfixed() != nil {
+			fp := fo.GetFixed()
 			if fp == nil {
-				fp = fo.Ufixed
+				fp = fo.GetUfixed()
 			}
 			scaled := math.Round(f * math.Pow10(int(fp.GetDecimalPlaces())))
-			if fo.Ufixed != nil {
+			if fo.GetUfixed() != nil {
+				maxV := float64(uint64(1)<<bitsN) - 1
+				if scaled < 0 || scaled > maxV {
+					switch eff {
+					case OverflowError:
+						return &PackError{Field: fieldName, Reason: fmt.Sprintf("ufixed double value %v overflows %d bits", scaled, bitsN)}
+					case OverflowModulo:
+						scaled = math.Mod(scaled, maxV+1)
+						if scaled < 0 {
+							scaled += maxV + 1
+						}
+					default: // Clamp
+						if scaled < 0 {
+							scaled = 0
+						} else {
+							scaled = maxV
+						}
+					}
+				}
 				w.writeBits(uint64(scaled), int(bitsN))
 			} else {
+				minV := -float64(int64(1) << (bitsN - 1))
+				maxV := float64(int64(1)<<(bitsN-1)) - 1
+				if scaled < minV || scaled > maxV {
+					switch eff {
+					case OverflowError:
+						return &PackError{Field: fieldName, Reason: fmt.Sprintf("fixed double value %v overflows signed %d bits", scaled, bitsN)}
+					case OverflowModulo:
+						mask := float64(uint64(1) << bitsN)
+						scaled = math.Mod(scaled, mask)
+						if scaled > maxV {
+							scaled -= mask
+						} else if scaled < minV {
+							scaled += mask
+						}
+					default: // Clamp
+						if scaled < minV {
+							scaled = minV
+						} else {
+							scaled = maxV
+						}
+					}
+				}
 				w.writeBits(uint64(int64(scaled)), int(bitsN))
 			}
 			break
@@ -253,18 +439,57 @@ func (p *Packer) encodeScalar(w *bitWriter, val protoreflect.Value, fd protorefl
 
 	case protoreflect.StringKind:
 		s := []byte(val.String())
+		maxLen := uint64(0)
+		if lengthBits < 64 {
+			maxLen = (uint64(1) << lengthBits) - 1
+		}
+		if uint64(len(s)) > maxLen {
+			switch eff {
+			case OverflowError:
+				return &PackError{Field: fieldName, Reason: fmt.Sprintf("string length %d overflows length_bits %d", len(s), lengthBits)}
+			case OverflowModulo:
+				s = s[:uint64(len(s))%maxLen]
+			case OverflowCropLeft:
+				s = s[uint64(len(s))-maxLen:]
+			default: // Clamp, CropRight → keep first maxLen bytes
+				s = s[:maxLen]
+			}
+		}
 		w.writeBits(uint64(len(s)), int(lengthBits))
 		w.writeRawBytes(s)
 
 	case protoreflect.BytesKind:
 		b := val.Bytes()
+		maxLen := uint64(0)
+		if lengthBits < 64 {
+			maxLen = (uint64(1) << lengthBits) - 1
+		}
+		if uint64(len(b)) > maxLen {
+			switch eff {
+			case OverflowError:
+				return &PackError{Field: fieldName, Reason: fmt.Sprintf("bytes length %d overflows length_bits %d", len(b), lengthBits)}
+			case OverflowModulo:
+				b = b[:uint64(len(b))%maxLen]
+			case OverflowCropLeft:
+				b = b[uint64(len(b))-maxLen:]
+			default: // Clamp, CropRight → keep first maxLen bytes
+				b = b[:maxLen]
+			}
+		}
 		w.writeBits(uint64(len(b)), int(lengthBits))
 		w.writeRawBytes(b)
 
 	case protoreflect.EnumKind:
 		v := val.Enum()
-		if bitsN < 64 && uint64(v) >= (1<<bitsN) {
-			return &PackError{Field: fieldName, Reason: fmt.Sprintf("enum value %d overflows %d bits", v, bitsN)}
+		if bitsN < 64 && uint64(v) >= (uint64(1)<<bitsN) {
+			switch eff {
+			case OverflowError:
+				return &PackError{Field: fieldName, Reason: fmt.Sprintf("enum value %d overflows %d bits", v, bitsN)}
+			case OverflowModulo:
+				v = protoreflect.EnumNumber(uint64(v) & ((uint64(1) << bitsN) - 1))
+			default: // Clamp, CropLeft, CropRight → clamp
+				v = protoreflect.EnumNumber((uint64(1) << bitsN) - 1)
+			}
 		}
 		w.writeBits(uint64(v), int(bitsN))
 
@@ -274,7 +499,7 @@ func (p *Packer) encodeScalar(w *bitWriter, val protoreflect.Value, fd protorefl
 		if err != nil {
 			return err
 		}
-		return p.encodeMessage(w, nested, nestedSchema)
+		return p.encodeMessage(w, nested, nestedSchema, strategy)
 	}
 
 	return nil

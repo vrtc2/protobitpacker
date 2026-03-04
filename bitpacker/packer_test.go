@@ -17,7 +17,7 @@ func TestPackUnpackSensorReading_NoLabel(t *testing.T) {
 		Status:          examplev1.SensorStatus_SENSOR_STATUS_WARNING,
 	}
 
-	data, err := bitpacker.Pack(msg)
+	data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
 	if err != nil {
 		t.Fatalf("Pack error: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestPackUnpackSensorReading_WithLabel(t *testing.T) {
 		Label:           &label,
 	}
 
-	data, err := bitpacker.Pack(msg)
+	data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
 	if err != nil {
 		t.Fatalf("Pack error: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestBitSize_SensorReading_NoLabel(t *testing.T) {
 		Alert:           false,
 		Status:          examplev1.SensorStatus_SENSOR_STATUS_UNSPECIFIED,
 	}
-	data, err := bitpacker.Pack(msg)
+	data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
 	if err != nil {
 		t.Fatalf("Pack error: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestPackUnpackPacket_OneofRaw(t *testing.T) {
 		},
 	}
 
-	data, err := bitpacker.Pack(msg)
+	data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
 	if err != nil {
 		t.Fatalf("Pack error: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestPackUnpackPacket_OneofCommand(t *testing.T) {
 		Payload:  &examplev1.Packet_Command{Command: 200},
 	}
 
-	data, err := bitpacker.Pack(msg)
+	data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
 	if err != nil {
 		t.Fatalf("Pack error: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestPackUnpackPacket_OneofAck(t *testing.T) {
 		Payload:  &examplev1.Packet_Ack{Ack: true},
 	}
 
-	data, err := bitpacker.Pack(msg)
+	data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
 	if err != nil {
 		t.Fatalf("Pack error: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestPackUnpackPacket_OneofAck(t *testing.T) {
 func TestPackUnpackPacket_OneofNone(t *testing.T) {
 	msg := &examplev1.Packet{Sequence: 7}
 
-	data, err := bitpacker.Pack(msg)
+	data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
 	if err != nil {
 		t.Fatalf("Pack error: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestPackUnpackBurst_Repeated(t *testing.T) {
 		Tags:       []string{"abc", "de"},
 	}
 
-	data, err := bitpacker.Pack(msg)
+	data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
 	if err != nil {
 		t.Fatalf("Pack error: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestPackUnpackConfig_Map(t *testing.T) {
 		},
 	}
 
-	data, err := bitpacker.Pack(msg)
+	data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
 	if err != nil {
 		t.Fatalf("Pack error: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestPackUnpackConfig_Map(t *testing.T) {
 func TestPackUnpackZeroMessage(t *testing.T) {
 	msg := &examplev1.SensorReading{}
 
-	data, err := bitpacker.Pack(msg)
+	data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
 	if err != nil {
 		t.Fatalf("Pack error: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestPackUnpackZeroMessage(t *testing.T) {
 func TestPackRangeError(t *testing.T) {
 	// sensor_id is 12 bits, max 4095; 4096 should fail
 	msg := &examplev1.SensorReading{SensorId: 4096}
-	_, err := bitpacker.Pack(msg)
+	_, err := bitpacker.Pack(msg, bitpacker.OverflowError)
 	if err == nil {
 		t.Error("expected PackError for out-of-range value, got nil")
 	}
@@ -314,7 +314,7 @@ func TestFixedPointFloat(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			data, err := bitpacker.Pack(tc.msg)
+			data, err := bitpacker.Pack(tc.msg, bitpacker.OverflowError)
 			if err != nil {
 				t.Fatalf("Pack error: %v", err)
 			}
@@ -327,4 +327,172 @@ func TestFixedPointFloat(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestOverflowStrategy verifies all strategy behaviours.
+func TestOverflowStrategy(t *testing.T) {
+	p := bitpacker.NewPacker()
+
+	t.Run("uint_modulo", func(t *testing.T) {
+		// sensor_id is 12 bits (max 4095); 4096 % 4096 = 0
+		msg := &examplev1.SensorReading{SensorId: 4096}
+		data, err := p.Pack(msg, bitpacker.OverflowModulo)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.SensorReading{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if got.SensorId != 0 {
+			t.Errorf("modulo: expected SensorId=0, got %d", got.SensorId)
+		}
+	})
+
+	t.Run("uint_modulo_nonzero", func(t *testing.T) {
+		// sensor_id is 12 bits; 4097 % 4096 = 1
+		msg := &examplev1.SensorReading{SensorId: 4097}
+		data, err := p.Pack(msg, bitpacker.OverflowModulo)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.SensorReading{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if got.SensorId != 1 {
+			t.Errorf("modulo: expected SensorId=1, got %d", got.SensorId)
+		}
+	})
+
+	t.Run("uint_clamp", func(t *testing.T) {
+		// sensor_id is 12 bits; 9999 clamps to 4095
+		msg := &examplev1.SensorReading{SensorId: 9999}
+		data, err := p.Pack(msg, bitpacker.OverflowClamp)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.SensorReading{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if got.SensorId != 4095 {
+			t.Errorf("clamp: expected SensorId=4095, got %d", got.SensorId)
+		}
+	})
+
+	t.Run("sint_clamp_positive", func(t *testing.T) {
+		// temperature_deci is sint32 11 bits; zigzag max for 11 bits = 2047 (unsigned).
+		// The max positive sint32 value encodable in 11 bits: zigzag(v) <= 2047 → v = 1023
+		// 2000 should clamp to 1023
+		msg := &examplev1.SensorReading{TemperatureDeci: 2000}
+		data, err := p.Pack(msg, bitpacker.OverflowClamp)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.SensorReading{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		// zigzag(1023) = 2046, zigzag(2047 unsigned) = saturated value
+		// The clamp sets zz = 2047, zagzig32(2047) = -1024
+		if got.TemperatureDeci != -1024 {
+			t.Errorf("sint clamp: expected -1024 (max-zz), got %d", got.TemperatureDeci)
+		}
+	})
+
+	t.Run("string_crop_right", func(t *testing.T) {
+		// tags has length_bits=5 → max 31 bytes per element; use a 40-byte string
+		longTag := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL" // 38 chars
+		msg := &examplev1.Burst{Tags: []string{longTag}}
+		data, err := p.Pack(msg, bitpacker.OverflowCropRight)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.Burst{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if len(got.Tags) != 1 {
+			t.Fatalf("expected 1 tag, got %d", len(got.Tags))
+		}
+		want := longTag[:31] // first 31 bytes
+		if got.Tags[0] != want {
+			t.Errorf("crop_right: expected %q, got %q", want, got.Tags[0])
+		}
+	})
+
+	t.Run("string_crop_left", func(t *testing.T) {
+		// Same setup; CropLeft keeps last 31 bytes
+		longTag := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL" // 38 chars
+		msg := &examplev1.Burst{Tags: []string{longTag}}
+		data, err := p.Pack(msg, bitpacker.OverflowCropLeft)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.Burst{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if len(got.Tags) != 1 {
+			t.Fatalf("expected 1 tag, got %d", len(got.Tags))
+		}
+		want := longTag[len(longTag)-31:] // last 31 bytes
+		if got.Tags[0] != want {
+			t.Errorf("crop_left: expected %q, got %q", want, got.Tags[0])
+		}
+	})
+
+	t.Run("repeated_count_clamp", func(t *testing.T) {
+		// adc_samples has count_bits=4 → max 15 elements; supply 20
+		samples := make([]uint32, 20)
+		for i := range samples {
+			samples[i] = uint32(i + 1) // fits in 12 bits each
+		}
+		msg := &examplev1.Burst{AdcSamples: samples}
+		data, err := p.Pack(msg, bitpacker.OverflowClamp)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.Burst{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if len(got.AdcSamples) != 15 {
+			t.Errorf("count clamp: expected 15 elements, got %d", len(got.AdcSamples))
+		}
+		// Verify the first 15 elements match
+		for i := 0; i < 15; i++ {
+			if got.AdcSamples[i] != samples[i] {
+				t.Errorf("element %d: want %d, got %d", i, samples[i], got.AdcSamples[i])
+			}
+		}
+	})
+
+	t.Run("repeated_count_crop_left", func(t *testing.T) {
+		// crop_left: keep last 15 of 20
+		samples := make([]uint32, 20)
+		for i := range samples {
+			samples[i] = uint32(i + 1)
+		}
+		msg := &examplev1.Burst{AdcSamples: samples}
+		data, err := p.Pack(msg, bitpacker.OverflowCropLeft)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.Burst{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if len(got.AdcSamples) != 15 {
+			t.Errorf("count crop_left: expected 15 elements, got %d", len(got.AdcSamples))
+		}
+		// Should be last 15 elements (indices 5..19)
+		for i := 0; i < 15; i++ {
+			want := samples[5+i]
+			if got.AdcSamples[i] != want {
+				t.Errorf("element %d: want %d, got %d", i, want, got.AdcSamples[i])
+			}
+		}
+	})
 }
