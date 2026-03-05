@@ -6,6 +6,7 @@ syntax = "proto3";
 package bitpacker.v1.example;
 
 import "bitpacker/v1/options.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/vrtc2/protobitpacker/gen/go/bitpacker/v1/example;examplev1";
 
@@ -94,6 +95,39 @@ message Config {
     (bitpacker.v1.field).count_bits = 6,
     (bitpacker.v1.field).key_length_bits = 5,
     (bitpacker.v1.field).bits = 16
+  ];
+}
+
+// TimestampedEvent demonstrates compact timestamp encoding.
+//
+//   updated_at:  64-bit signed seconds from Unix epoch (default, no annotation)
+//   recorded_at: 26-bit unsigned seconds from 2026-01-01 — covers ~2 years, 4 bytes
+//   event_ms:    32-bit signed milliseconds from 2026-01-01 — ~24 days range, 4 bytes
+//
+// Total (all present): 1+64 + 1+26 + 1+32 = 125 bits → 16 bytes
+// Standard protobuf Timestamp × 3:                      ≈ 36 bytes
+message TimestampedEvent {
+  // Last update — 64-bit signed Unix seconds (smart default, no annotation needed).
+  google.protobuf.Timestamp updated_at = 1;
+
+  // Sensor reading timestamp — 26-bit unsigned seconds from 2026-01-01.
+  // Range: [2026-01-01 .. ~2028-02-05] (2^26 − 1 ≈ 2.1 years in seconds).
+  google.protobuf.Timestamp recorded_at = 2 [
+    (bitpacker.v1.field).bits = 26,
+    (bitpacker.v1.field).timestamp = {
+      epoch_seconds: 1735689600,  // 2026-01-01T00:00:00Z
+      forward_only: true
+    }
+  ];
+
+  // Event time — 32-bit signed milliseconds from 2026-01-01.
+  // Range: ±~24 days around the epoch.
+  google.protobuf.Timestamp event_ms = 3 [
+    (bitpacker.v1.field).bits = 32,
+    (bitpacker.v1.field).timestamp = {
+      epoch_seconds: 1735689600,  // 2026-01-01T00:00:00Z
+      granularity: TIMESTAMP_GRANULARITY_MILLISECONDS
+    }
   ];
 }
 

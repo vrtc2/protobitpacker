@@ -245,6 +245,65 @@ encode: value_on_wire = round(float_value × 10^decimal_places)
 decode: float_value = integer_from_wire ÷ 10^decimal_places
 ```
 
+### `(bitpacker.v1.field).timestamp`
+
+Compact encoding for `google.protobuf.Timestamp` fields. The timestamp is stored as an
+integer **offset from a configurable epoch**, using a configurable time unit and bit width.
+
+**Any** `google.protobuf.Timestamp` field uses this encoding automatically. The annotation
+is only needed when you want to override the defaults.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `bits` (from `FieldOptions.bits`) | 64 | Bit width for the stored value |
+| `epoch_seconds` | 0 (Unix epoch, 1970-01-01) | Custom epoch as Unix timestamp in seconds |
+| `granularity` | `SECONDS` | Time unit: `SECONDS`, `MILLISECONDS`, `MICROSECONDS`, `NANOSECONDS` |
+| `forward_only` | `false` (signed) | `true` = unsigned (only future timestamps from epoch); `false` = signed (past + future) |
+
+```protobuf
+import "google/protobuf/timestamp.proto";
+import "bitpacker/v1/options.proto";
+
+message SensorReading {
+  // 64-bit signed seconds from Unix epoch — smart default, no annotation needed.
+  google.protobuf.Timestamp updated_at = 1;
+
+  // 26-bit unsigned seconds from 2026-01-01 — covers ~2 years, no past timestamps.
+  // 1 bit presence + 26 bits value = 27 bits = ~4 bytes (vs. ~12 bytes standard protobuf)
+  google.protobuf.Timestamp recorded_at = 2 [
+    (bitpacker.v1.field).bits = 26,
+    (bitpacker.v1.field).timestamp = {
+      epoch_seconds: 1735689600,   // 2026-01-01T00:00:00Z
+      forward_only: true
+    }
+  ];
+
+  // 32-bit signed milliseconds from 2026-01-01 — ±~24 days around epoch.
+  google.protobuf.Timestamp event_ms = 3 [
+    (bitpacker.v1.field).bits = 32,
+    (bitpacker.v1.field).timestamp = {
+      epoch_seconds: 1735689600,
+      granularity: TIMESTAMP_GRANULARITY_MILLISECONDS
+    }
+  ];
+}
+```
+
+**Wire format:** 1-bit presence flag, then N-bit signed or unsigned integer offset.
+
+```
+encode: wire_value = (timestamp_in_units) - (epoch_seconds × units_per_second)
+decode: timestamp  = wire_value + (epoch_seconds × units_per_second)
+```
+
+Granularity detail: sub-unit precision is discarded on encode (round-down toward zero for
+positive offsets). `NANOSECONDS` preserves full `google.protobuf.Timestamp` precision.
+
+**Overflow and `forward_only`:**
+- `forward_only: false` (default): signed two's complement — values before epoch are negative.
+- `forward_only: true`: unsigned — values before epoch trigger the configured
+  `OverflowStrategy` (`OverflowError` by default, or `OverflowClamp` to store 0 = epoch).
+
 ### `(bitpacker.v1.oneof).selector_bits`
 
 Bit width of the oneof discriminator. Defaults to `ceil(log2(N+1))` where N is the
@@ -297,6 +356,7 @@ delimiters, or metadata. The stream is zero-padded to a byte boundary at the end
 | `double` | 64-bit, 32-bit (lossy), or 16-bit (lossy); or fixed-point integer when `fixed`/`ufixed` is set |
 | `string`, `bytes` | `length_bits`-wide byte count, then raw bytes |
 | `enum` | N-bit unsigned (proto enum number) |
+| `google.protobuf.Timestamp` | 1-bit presence, then N-bit signed/unsigned offset from epoch |
 | `message` | recursive pack (preceded by presence bit when not in oneof) |
 
 ---

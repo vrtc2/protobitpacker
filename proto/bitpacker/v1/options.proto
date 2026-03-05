@@ -6,6 +6,57 @@ import "google/protobuf/descriptor.proto";
 
 option go_package = "github.com/vrtc2/protobitpacker/gen/go/bitpacker/v1;bitpackerv1";
 
+// TimestampGranularity controls the time unit stored in the bit-packed timestamp field.
+enum TimestampGranularity {
+  // TIMESTAMP_GRANULARITY_UNSPECIFIED is the same as TIMESTAMP_GRANULARITY_SECONDS.
+  TIMESTAMP_GRANULARITY_UNSPECIFIED = 0;
+  // TIMESTAMP_GRANULARITY_SECONDS stores seconds (nanoseconds are discarded).
+  TIMESTAMP_GRANULARITY_SECONDS = 1;
+  // TIMESTAMP_GRANULARITY_MILLISECONDS stores milliseconds; sub-millisecond precision is lost.
+  TIMESTAMP_GRANULARITY_MILLISECONDS = 2;
+  // TIMESTAMP_GRANULARITY_MICROSECONDS stores microseconds; sub-microsecond precision is lost.
+  TIMESTAMP_GRANULARITY_MICROSECONDS = 3;
+  // TIMESTAMP_GRANULARITY_NANOSECONDS stores full nanosecond precision.
+  TIMESTAMP_GRANULARITY_NANOSECONDS = 4;
+}
+
+// TimestampOptions controls compact encoding of a google.protobuf.Timestamp field.
+//
+// The number of bits is taken from the enclosing FieldOptions.bits (default 64).
+//
+// Wire value = (timestamp_in_units - epoch_in_units), stored as a signed or unsigned integer.
+// epoch_in_units = epoch_seconds × units_per_second.
+//
+// Usage:
+//   import "google/protobuf/timestamp.proto";
+//
+//   // 26-bit unsigned seconds from 2026-01-01, covers ~2 years from that epoch.
+//   google.protobuf.Timestamp recorded_at = 7 [
+//     (bitpacker.v1.field).bits = 26,
+//     (bitpacker.v1.field).timestamp = {
+//       epoch_seconds: 1735689600,
+//       forward_only: true
+//     }
+//   ];
+message TimestampOptions {
+  // epoch_seconds: custom epoch as Unix timestamp in seconds.
+  // Default 0 = 1970-01-01T00:00:00Z (standard Unix epoch).
+  // Example: 1735689600 = 2026-01-01T00:00:00Z
+  int64 epoch_seconds = 1;
+
+  // granularity: unit of the stored value.
+  // Default TIMESTAMP_GRANULARITY_SECONDS.
+  TimestampGranularity granularity = 2;
+
+  // forward_only: when true, the offset from the epoch is stored as an unsigned integer.
+  //   - Full positive range: [0 .. 2^bits - 1] units from epoch.
+  //   - Timestamps before the epoch are an overflow condition.
+  // When false (default), the offset is stored as a signed two's complement integer.
+  //   - Timestamps before and after the epoch are both representable.
+  //   - Range: [-2^(bits-1) .. 2^(bits-1)-1] units from epoch.
+  bool forward_only = 3;
+}
+
 // OverflowStrategy controls what happens when a value exceeds its declared bit width.
 enum OverflowStrategy {
   // OVERFLOW_STRATEGY_UNSPECIFIED means: inherit the pack-level default strategy.
@@ -120,6 +171,17 @@ message FieldOptions {
   // When set to a value other than OVERFLOW_STRATEGY_UNSPECIFIED, this overrides
   // the pack-level default strategy for this individual field.
   OverflowStrategy overflow = 8;
+
+  // timestamp: compact encoding options for a google.protobuf.Timestamp field.
+  //
+  // When present on a google.protobuf.Timestamp field, the timestamp is stored as a
+  // compact integer offset from the configured epoch, rather than as a nested message.
+  // Any google.protobuf.Timestamp field — even without this annotation — uses the
+  // compact path with defaults: 64-bit signed seconds from the Unix epoch.
+  //
+  // Applicable to: google.protobuf.Timestamp
+  // Incompatible with: fixed, ufixed, length_bits, count_bits
+  TimestampOptions timestamp = 9;
 }
 
 // OneofOptions controls encoding of a oneof group's case discriminator.

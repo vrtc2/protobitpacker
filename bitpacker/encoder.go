@@ -35,6 +35,10 @@ func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFi
 		}
 	}
 
+	if u.isTimestamp {
+		return p.encodeTimestamp(w, msg, u, strategy)
+	}
+
 	if u.isMessage {
 		if msg.Has(fd) {
 			w.writeBits(1, 1)
@@ -119,6 +123,128 @@ func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFi
 	}
 
 	return p.encodeValue(w, msg.Get(fd), u, strategy)
+}
+
+func (p *Packer) encodeTimestamp(w *bitWriter, msg protoreflect.Message, u *scalarFieldUnit, strategy OverflowStrategy) error {
+	fd := u.fd
+	fieldName := string(fd.Name())
+
+	// Presence bit (message-kind fields always emit a presence flag).
+	if !msg.Has(fd) {
+		w.writeBits(0, 1)
+		return nil
+	}
+	w.writeBits(1, 1)
+
+	tsMsg := msg.Get(fd).Message()
+	tsFds := tsMsg.Descriptor().Fields()
+	secs := tsMsg.Get(tsFds.ByName("seconds")).Int()
+	nanos := int32(tsMsg.Get(tsFds.ByName("nanos")).Int())
+	fo := getFieldOpts(fd)
+	tso := fo.GetTimestamp()
+
+	bitsN := u.bits
+	if bitsN == 0 {
+		bitsN = 64
+	}
+
+	var epochSecs int64
+	var granularity int64 = 1 // units per second
+	if tso != nil {
+		epochSecs = tso.GetEpochSeconds()
+		switch tso.GetGranularity() {
+		case 2: // MILLISECONDS
+			granularity = 1_000
+		case 3: // MICROSECONDS
+			granularity = 1_000_000
+		case 4: // NANOSECONDS
+			granularity = 1_000_000_000
+		}
+	}
+
+	var tsUnits int64
+	switch granularity {
+	case 1:
+		tsUnits = secs
+	case 1_000:
+		tsUnits = secs*1_000 + int64(nanos)/1_000_000
+	case 1_000_000:
+		tsUnits = secs*1_000_000 + int64(nanos)/1_000
+	default: // 1_000_000_000
+		tsUnits = secs*1_000_000_000 + int64(nanos)
+	}
+	epochUnits := epochSecs * granularity
+	offset := tsUnits - epochUnits
+
+	eff := effectiveStrategy(fd, strategy)
+	forwardOnly := tso != nil && tso.GetForwardOnly()
+
+	if forwardOnly {
+		// unsigned: offset must be in [0, 2^bitsN - 1]
+		var maxVal uint64
+		if bitsN == 64 {
+			maxVal = math.MaxUint64
+		} else {
+			maxVal = (uint64(1) << bitsN) - 1
+		}
+		if offset < 0 || uint64(offset) > maxVal {
+			switch eff {
+			case OverflowError:
+				return &PackError{Field: fieldName, Reason: fmt.Sprintf("timestamp offset %d overflows unsigned %d bits", offset, bitsN)}
+			case OverflowModulo:
+				if bitsN < 64 {
+					offset = int64(uint64(offset) & maxVal)
+				}
+			default: // Clamp
+				if offset < 0 {
+					offset = 0
+				} else {
+					offset = int64(maxVal)
+				}
+			}
+		}
+		w.writeBits(uint64(offset), int(bitsN))
+	} else {
+		// signed: offset must be in [-2^(bitsN-1), 2^(bitsN-1)-1]
+		var minVal, maxVal int64
+		if bitsN == 64 {
+			minVal = math.MinInt64
+			maxVal = math.MaxInt64
+		} else {
+			minVal = -(int64(1) << (bitsN - 1))
+			maxVal = (int64(1) << (bitsN - 1)) - 1
+		}
+		if offset < minVal || offset > maxVal {
+			switch eff {
+			case OverflowError:
+				return &PackError{Field: fieldName, Reason: fmt.Sprintf("timestamp offset %d overflows signed %d bits", offset, bitsN)}
+			case OverflowModulo:
+				if bitsN < 64 {
+					mask := (uint64(1) << bitsN) - 1
+					wrapped := uint64(offset) & mask
+					if wrapped>>(bitsN-1) != 0 {
+						offset = int64(wrapped) | ^int64(mask)
+					} else {
+						offset = int64(wrapped)
+					}
+				}
+			default: // Clamp
+				if offset < minVal {
+					offset = minVal
+				} else {
+					offset = maxVal
+				}
+			}
+		}
+		var mask uint64
+		if bitsN == 64 {
+			mask = math.MaxUint64
+		} else {
+			mask = (uint64(1) << bitsN) - 1
+		}
+		w.writeBits(uint64(offset)&mask, int(bitsN))
+	}
+	return nil
 }
 
 func (p *Packer) encodeOneof(w *bitWriter, msg protoreflect.Message, u *oneofUnit, strategy OverflowStrategy) error {

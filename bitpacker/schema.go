@@ -19,6 +19,7 @@ type scalarFieldUnit struct {
 	keyLengthBits uint32
 	isOptional    bool // proto3 optional (synthetic oneof) → emit 1-bit presence
 	isMessage     bool // nested message → emit 1-bit presence + recurse
+	isTimestamp   bool // google.protobuf.Timestamp → compact integer encoding
 }
 
 func (s *scalarFieldUnit) isEncodingUnit() {}
@@ -126,7 +127,11 @@ func buildScalarUnit(fd protoreflect.FieldDescriptor, md protoreflect.MessageDes
 
 	if fd.Kind() == protoreflect.MessageKind || fd.Kind() == protoreflect.GroupKind {
 		if !fd.IsList() && !fd.IsMap() {
-			unit.isMessage = true
+			if fd.Message().FullName() == "google.protobuf.Timestamp" {
+				unit.isTimestamp = true
+			} else {
+				unit.isMessage = true
+			}
 		}
 	}
 
@@ -222,6 +227,18 @@ func validateScalarUnit(u *scalarFieldUnit, fd protoreflect.FieldDescriptor, md 
 			return &ValidationError{Message: msgName, Field: fieldName, Reason: "enum field requires bits > 0"}
 		}
 	case protoreflect.MessageKind, protoreflect.GroupKind:
+		if u.isTimestamp {
+			fo := getFieldOpts(fd)
+			if fo.Fixed != nil || fo.Ufixed != nil {
+				return &ValidationError{Message: msgName, Field: fieldName, Reason: "timestamp field: incompatible with fixed/ufixed"}
+			}
+			if u.lengthBits != 0 || u.countBits != 0 {
+				return &ValidationError{Message: msgName, Field: fieldName, Reason: "timestamp field: incompatible with length_bits/count_bits"}
+			}
+			if u.bits > 64 {
+				return &ValidationError{Message: msgName, Field: fieldName, Reason: "timestamp field: bits must be 0..64"}
+			}
+		}
 		// nested message: no annotation required, validated recursively
 	}
 

@@ -22,6 +22,67 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// TimestampGranularity controls the time unit stored in the bit-packed timestamp field.
+type TimestampGranularity int32
+
+const (
+	// TIMESTAMP_GRANULARITY_UNSPECIFIED is the same as TIMESTAMP_GRANULARITY_SECONDS.
+	TimestampGranularity_TIMESTAMP_GRANULARITY_UNSPECIFIED TimestampGranularity = 0
+	// TIMESTAMP_GRANULARITY_SECONDS stores seconds (nanoseconds are discarded).
+	TimestampGranularity_TIMESTAMP_GRANULARITY_SECONDS TimestampGranularity = 1
+	// TIMESTAMP_GRANULARITY_MILLISECONDS stores milliseconds; sub-millisecond precision is lost.
+	TimestampGranularity_TIMESTAMP_GRANULARITY_MILLISECONDS TimestampGranularity = 2
+	// TIMESTAMP_GRANULARITY_MICROSECONDS stores microseconds; sub-microsecond precision is lost.
+	TimestampGranularity_TIMESTAMP_GRANULARITY_MICROSECONDS TimestampGranularity = 3
+	// TIMESTAMP_GRANULARITY_NANOSECONDS stores full nanosecond precision.
+	TimestampGranularity_TIMESTAMP_GRANULARITY_NANOSECONDS TimestampGranularity = 4
+)
+
+// Enum value maps for TimestampGranularity.
+var (
+	TimestampGranularity_name = map[int32]string{
+		0: "TIMESTAMP_GRANULARITY_UNSPECIFIED",
+		1: "TIMESTAMP_GRANULARITY_SECONDS",
+		2: "TIMESTAMP_GRANULARITY_MILLISECONDS",
+		3: "TIMESTAMP_GRANULARITY_MICROSECONDS",
+		4: "TIMESTAMP_GRANULARITY_NANOSECONDS",
+	}
+	TimestampGranularity_value = map[string]int32{
+		"TIMESTAMP_GRANULARITY_UNSPECIFIED":  0,
+		"TIMESTAMP_GRANULARITY_SECONDS":      1,
+		"TIMESTAMP_GRANULARITY_MILLISECONDS": 2,
+		"TIMESTAMP_GRANULARITY_MICROSECONDS": 3,
+		"TIMESTAMP_GRANULARITY_NANOSECONDS":  4,
+	}
+)
+
+func (x TimestampGranularity) Enum() *TimestampGranularity {
+	p := new(TimestampGranularity)
+	*p = x
+	return p
+}
+
+func (x TimestampGranularity) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TimestampGranularity) Descriptor() protoreflect.EnumDescriptor {
+	return file_bitpacker_v1_options_proto_enumTypes[0].Descriptor()
+}
+
+func (TimestampGranularity) Type() protoreflect.EnumType {
+	return &file_bitpacker_v1_options_proto_enumTypes[0]
+}
+
+func (x TimestampGranularity) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TimestampGranularity.Descriptor instead.
+func (TimestampGranularity) EnumDescriptor() ([]byte, []int) {
+	return file_bitpacker_v1_options_proto_rawDescGZIP(), []int{0}
+}
+
 // OverflowStrategy controls what happens when a value exceeds its declared bit width.
 type OverflowStrategy int32
 
@@ -73,11 +134,11 @@ func (x OverflowStrategy) String() string {
 }
 
 func (OverflowStrategy) Descriptor() protoreflect.EnumDescriptor {
-	return file_bitpacker_v1_options_proto_enumTypes[0].Descriptor()
+	return file_bitpacker_v1_options_proto_enumTypes[1].Descriptor()
 }
 
 func (OverflowStrategy) Type() protoreflect.EnumType {
-	return &file_bitpacker_v1_options_proto_enumTypes[0]
+	return &file_bitpacker_v1_options_proto_enumTypes[1]
 }
 
 func (x OverflowStrategy) Number() protoreflect.EnumNumber {
@@ -86,7 +147,98 @@ func (x OverflowStrategy) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use OverflowStrategy.Descriptor instead.
 func (OverflowStrategy) EnumDescriptor() ([]byte, []int) {
+	return file_bitpacker_v1_options_proto_rawDescGZIP(), []int{1}
+}
+
+// TimestampOptions controls compact encoding of a google.protobuf.Timestamp field.
+//
+// The number of bits is taken from the enclosing FieldOptions.bits (default 64).
+//
+// Wire value = (timestamp_in_units - epoch_in_units), stored as a signed or unsigned integer.
+// epoch_in_units = epoch_seconds × units_per_second.
+//
+// Usage:
+//
+//	import "google/protobuf/timestamp.proto";
+//
+//	// 26-bit unsigned seconds from 2026-01-01, covers ~2 years from that epoch.
+//	google.protobuf.Timestamp recorded_at = 7 [
+//	  (bitpacker.v1.field).bits = 26,
+//	  (bitpacker.v1.field).timestamp = {
+//	    epoch_seconds: 1735689600,
+//	    forward_only: true
+//	  }
+//	];
+type TimestampOptions struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// epoch_seconds: custom epoch as Unix timestamp in seconds.
+	// Default 0 = 1970-01-01T00:00:00Z (standard Unix epoch).
+	// Example: 1735689600 = 2026-01-01T00:00:00Z
+	EpochSeconds int64 `protobuf:"varint,1,opt,name=epoch_seconds,json=epochSeconds,proto3" json:"epoch_seconds,omitempty"`
+	// granularity: unit of the stored value.
+	// Default TIMESTAMP_GRANULARITY_SECONDS.
+	Granularity TimestampGranularity `protobuf:"varint,2,opt,name=granularity,proto3,enum=bitpacker.v1.TimestampGranularity" json:"granularity,omitempty"`
+	// forward_only: when true, the offset from the epoch is stored as an unsigned integer.
+	//   - Full positive range: [0 .. 2^bits - 1] units from epoch.
+	//   - Timestamps before the epoch are an overflow condition.
+	//
+	// When false (default), the offset is stored as a signed two's complement integer.
+	//   - Timestamps before and after the epoch are both representable.
+	//   - Range: [-2^(bits-1) .. 2^(bits-1)-1] units from epoch.
+	ForwardOnly   bool `protobuf:"varint,3,opt,name=forward_only,json=forwardOnly,proto3" json:"forward_only,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TimestampOptions) Reset() {
+	*x = TimestampOptions{}
+	mi := &file_bitpacker_v1_options_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TimestampOptions) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TimestampOptions) ProtoMessage() {}
+
+func (x *TimestampOptions) ProtoReflect() protoreflect.Message {
+	mi := &file_bitpacker_v1_options_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TimestampOptions.ProtoReflect.Descriptor instead.
+func (*TimestampOptions) Descriptor() ([]byte, []int) {
 	return file_bitpacker_v1_options_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *TimestampOptions) GetEpochSeconds() int64 {
+	if x != nil {
+		return x.EpochSeconds
+	}
+	return 0
+}
+
+func (x *TimestampOptions) GetGranularity() TimestampGranularity {
+	if x != nil {
+		return x.Granularity
+	}
+	return TimestampGranularity_TIMESTAMP_GRANULARITY_UNSPECIFIED
+}
+
+func (x *TimestampOptions) GetForwardOnly() bool {
+	if x != nil {
+		return x.ForwardOnly
+	}
+	return false
 }
 
 // FieldOptions controls how a single field is encoded in the bit-packed stream.
@@ -175,14 +327,24 @@ type FieldOptions struct {
 	//
 	// When set to a value other than OVERFLOW_STRATEGY_UNSPECIFIED, this overrides
 	// the pack-level default strategy for this individual field.
-	Overflow      OverflowStrategy `protobuf:"varint,8,opt,name=overflow,proto3,enum=bitpacker.v1.OverflowStrategy" json:"overflow,omitempty"`
+	Overflow OverflowStrategy `protobuf:"varint,8,opt,name=overflow,proto3,enum=bitpacker.v1.OverflowStrategy" json:"overflow,omitempty"`
+	// timestamp: compact encoding options for a google.protobuf.Timestamp field.
+	//
+	// When present on a google.protobuf.Timestamp field, the timestamp is stored as a
+	// compact integer offset from the configured epoch, rather than as a nested message.
+	// Any google.protobuf.Timestamp field — even without this annotation — uses the
+	// compact path with defaults: 64-bit signed seconds from the Unix epoch.
+	//
+	// Applicable to: google.protobuf.Timestamp
+	// Incompatible with: fixed, ufixed, length_bits, count_bits
+	Timestamp     *TimestampOptions `protobuf:"bytes,9,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FieldOptions) Reset() {
 	*x = FieldOptions{}
-	mi := &file_bitpacker_v1_options_proto_msgTypes[0]
+	mi := &file_bitpacker_v1_options_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -194,7 +356,7 @@ func (x *FieldOptions) String() string {
 func (*FieldOptions) ProtoMessage() {}
 
 func (x *FieldOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_bitpacker_v1_options_proto_msgTypes[0]
+	mi := &file_bitpacker_v1_options_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -207,7 +369,7 @@ func (x *FieldOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldOptions.ProtoReflect.Descriptor instead.
 func (*FieldOptions) Descriptor() ([]byte, []int) {
-	return file_bitpacker_v1_options_proto_rawDescGZIP(), []int{0}
+	return file_bitpacker_v1_options_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *FieldOptions) GetBits() uint32 {
@@ -266,6 +428,13 @@ func (x *FieldOptions) GetOverflow() OverflowStrategy {
 	return OverflowStrategy_OVERFLOW_STRATEGY_UNSPECIFIED
 }
 
+func (x *FieldOptions) GetTimestamp() *TimestampOptions {
+	if x != nil {
+		return x.Timestamp
+	}
+	return nil
+}
+
 // OneofOptions controls encoding of a oneof group's case discriminator.
 //
 // Usage:
@@ -297,7 +466,7 @@ type OneofOptions struct {
 
 func (x *OneofOptions) Reset() {
 	*x = OneofOptions{}
-	mi := &file_bitpacker_v1_options_proto_msgTypes[1]
+	mi := &file_bitpacker_v1_options_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -309,7 +478,7 @@ func (x *OneofOptions) String() string {
 func (*OneofOptions) ProtoMessage() {}
 
 func (x *OneofOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_bitpacker_v1_options_proto_msgTypes[1]
+	mi := &file_bitpacker_v1_options_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -322,7 +491,7 @@ func (x *OneofOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OneofOptions.ProtoReflect.Descriptor instead.
 func (*OneofOptions) Descriptor() ([]byte, []int) {
-	return file_bitpacker_v1_options_proto_rawDescGZIP(), []int{1}
+	return file_bitpacker_v1_options_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *OneofOptions) GetSelectorBits() uint32 {
@@ -347,7 +516,7 @@ type FieldOptions_FixedPoint struct {
 
 func (x *FieldOptions_FixedPoint) Reset() {
 	*x = FieldOptions_FixedPoint{}
-	mi := &file_bitpacker_v1_options_proto_msgTypes[2]
+	mi := &file_bitpacker_v1_options_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -359,7 +528,7 @@ func (x *FieldOptions_FixedPoint) String() string {
 func (*FieldOptions_FixedPoint) ProtoMessage() {}
 
 func (x *FieldOptions_FixedPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_bitpacker_v1_options_proto_msgTypes[2]
+	mi := &file_bitpacker_v1_options_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -372,7 +541,7 @@ func (x *FieldOptions_FixedPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldOptions_FixedPoint.ProtoReflect.Descriptor instead.
 func (*FieldOptions_FixedPoint) Descriptor() ([]byte, []int) {
-	return file_bitpacker_v1_options_proto_rawDescGZIP(), []int{0, 0}
+	return file_bitpacker_v1_options_proto_rawDescGZIP(), []int{1, 0}
 }
 
 func (x *FieldOptions_FixedPoint) GetDecimalPlaces() uint32 {
@@ -417,7 +586,11 @@ var File_bitpacker_v1_options_proto protoreflect.FileDescriptor
 
 const file_bitpacker_v1_options_proto_rawDesc = "" +
 	"\n" +
-	"\x1abitpacker/v1/options.proto\x12\fbitpacker.v1\x1a google/protobuf/descriptor.proto\"\x92\x03\n" +
+	"\x1abitpacker/v1/options.proto\x12\fbitpacker.v1\x1a google/protobuf/descriptor.proto\"\xa0\x01\n" +
+	"\x10TimestampOptions\x12#\n" +
+	"\repoch_seconds\x18\x01 \x01(\x03R\fepochSeconds\x12D\n" +
+	"\vgranularity\x18\x02 \x01(\x0e2\".bitpacker.v1.TimestampGranularityR\vgranularity\x12!\n" +
+	"\fforward_only\x18\x03 \x01(\bR\vforwardOnly\"\xd0\x03\n" +
 	"\fFieldOptions\x12\x12\n" +
 	"\x04bits\x18\x01 \x01(\rR\x04bits\x12\x1f\n" +
 	"\vlength_bits\x18\x02 \x01(\rR\n" +
@@ -428,12 +601,19 @@ const file_bitpacker_v1_options_proto_rawDesc = "" +
 	"\x0fkey_length_bits\x18\x05 \x01(\rR\rkeyLengthBits\x12;\n" +
 	"\x05fixed\x18\x06 \x01(\v2%.bitpacker.v1.FieldOptions.FixedPointR\x05fixed\x12=\n" +
 	"\x06ufixed\x18\a \x01(\v2%.bitpacker.v1.FieldOptions.FixedPointR\x06ufixed\x12:\n" +
-	"\boverflow\x18\b \x01(\x0e2\x1e.bitpacker.v1.OverflowStrategyR\boverflow\x1a3\n" +
+	"\boverflow\x18\b \x01(\x0e2\x1e.bitpacker.v1.OverflowStrategyR\boverflow\x12<\n" +
+	"\ttimestamp\x18\t \x01(\v2\x1e.bitpacker.v1.TimestampOptionsR\ttimestamp\x1a3\n" +
 	"\n" +
 	"FixedPoint\x12%\n" +
 	"\x0edecimal_places\x18\x01 \x01(\rR\rdecimalPlaces\"3\n" +
 	"\fOneofOptions\x12#\n" +
-	"\rselector_bits\x18\x01 \x01(\rR\fselectorBits*\xd0\x01\n" +
+	"\rselector_bits\x18\x01 \x01(\rR\fselectorBits*\xd7\x01\n" +
+	"\x14TimestampGranularity\x12%\n" +
+	"!TIMESTAMP_GRANULARITY_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dTIMESTAMP_GRANULARITY_SECONDS\x10\x01\x12&\n" +
+	"\"TIMESTAMP_GRANULARITY_MILLISECONDS\x10\x02\x12&\n" +
+	"\"TIMESTAMP_GRANULARITY_MICROSECONDS\x10\x03\x12%\n" +
+	"!TIMESTAMP_GRANULARITY_NANOSECONDS\x10\x04*\xd0\x01\n" +
 	"\x10OverflowStrategy\x12!\n" +
 	"\x1dOVERFLOW_STRATEGY_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17OVERFLOW_STRATEGY_ERROR\x10\x01\x12\x1c\n" +
@@ -457,29 +637,33 @@ func file_bitpacker_v1_options_proto_rawDescGZIP() []byte {
 	return file_bitpacker_v1_options_proto_rawDescData
 }
 
-var file_bitpacker_v1_options_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_bitpacker_v1_options_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_bitpacker_v1_options_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_bitpacker_v1_options_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_bitpacker_v1_options_proto_goTypes = []any{
-	(OverflowStrategy)(0),             // 0: bitpacker.v1.OverflowStrategy
-	(*FieldOptions)(nil),              // 1: bitpacker.v1.FieldOptions
-	(*OneofOptions)(nil),              // 2: bitpacker.v1.OneofOptions
-	(*FieldOptions_FixedPoint)(nil),   // 3: bitpacker.v1.FieldOptions.FixedPoint
-	(*descriptorpb.FieldOptions)(nil), // 4: google.protobuf.FieldOptions
-	(*descriptorpb.OneofOptions)(nil), // 5: google.protobuf.OneofOptions
+	(TimestampGranularity)(0),         // 0: bitpacker.v1.TimestampGranularity
+	(OverflowStrategy)(0),             // 1: bitpacker.v1.OverflowStrategy
+	(*TimestampOptions)(nil),          // 2: bitpacker.v1.TimestampOptions
+	(*FieldOptions)(nil),              // 3: bitpacker.v1.FieldOptions
+	(*OneofOptions)(nil),              // 4: bitpacker.v1.OneofOptions
+	(*FieldOptions_FixedPoint)(nil),   // 5: bitpacker.v1.FieldOptions.FixedPoint
+	(*descriptorpb.FieldOptions)(nil), // 6: google.protobuf.FieldOptions
+	(*descriptorpb.OneofOptions)(nil), // 7: google.protobuf.OneofOptions
 }
 var file_bitpacker_v1_options_proto_depIdxs = []int32{
-	3, // 0: bitpacker.v1.FieldOptions.fixed:type_name -> bitpacker.v1.FieldOptions.FixedPoint
-	3, // 1: bitpacker.v1.FieldOptions.ufixed:type_name -> bitpacker.v1.FieldOptions.FixedPoint
-	0, // 2: bitpacker.v1.FieldOptions.overflow:type_name -> bitpacker.v1.OverflowStrategy
-	4, // 3: bitpacker.v1.field:extendee -> google.protobuf.FieldOptions
-	5, // 4: bitpacker.v1.oneof:extendee -> google.protobuf.OneofOptions
-	1, // 5: bitpacker.v1.field:type_name -> bitpacker.v1.FieldOptions
-	2, // 6: bitpacker.v1.oneof:type_name -> bitpacker.v1.OneofOptions
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	5, // [5:7] is the sub-list for extension type_name
-	3, // [3:5] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0, // 0: bitpacker.v1.TimestampOptions.granularity:type_name -> bitpacker.v1.TimestampGranularity
+	5, // 1: bitpacker.v1.FieldOptions.fixed:type_name -> bitpacker.v1.FieldOptions.FixedPoint
+	5, // 2: bitpacker.v1.FieldOptions.ufixed:type_name -> bitpacker.v1.FieldOptions.FixedPoint
+	1, // 3: bitpacker.v1.FieldOptions.overflow:type_name -> bitpacker.v1.OverflowStrategy
+	2, // 4: bitpacker.v1.FieldOptions.timestamp:type_name -> bitpacker.v1.TimestampOptions
+	6, // 5: bitpacker.v1.field:extendee -> google.protobuf.FieldOptions
+	7, // 6: bitpacker.v1.oneof:extendee -> google.protobuf.OneofOptions
+	3, // 7: bitpacker.v1.field:type_name -> bitpacker.v1.FieldOptions
+	4, // 8: bitpacker.v1.oneof:type_name -> bitpacker.v1.OneofOptions
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	7, // [7:9] is the sub-list for extension type_name
+	5, // [5:7] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_bitpacker_v1_options_proto_init() }
@@ -492,8 +676,8 @@ func file_bitpacker_v1_options_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bitpacker_v1_options_proto_rawDesc), len(file_bitpacker_v1_options_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   3,
+			NumEnums:      2,
+			NumMessages:   4,
 			NumExtensions: 2,
 			NumServices:   0,
 		},

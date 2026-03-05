@@ -2,10 +2,12 @@ package bitpacker_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/vrtc2/protobitpacker/bitpacker"
 	examplev1 "github.com/vrtc2/protobitpacker/gen/go/bitpacker/v1/example"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestPackUnpackSensorReading_NoLabel(t *testing.T) {
@@ -327,6 +329,132 @@ func TestFixedPointFloat(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestTimestamp verifies compact timestamp encoding round-trips.
+func TestTimestamp(t *testing.T) {
+	epoch2026 := int64(1735689600) // 2026-01-01T00:00:00Z
+
+	t.Run("default_64bit_signed_roundtrip", func(t *testing.T) {
+		// updated_at: 64-bit signed seconds, Unix epoch (no annotation)
+		ts := timestamppb.New(time.Unix(1735689600, 0).UTC())
+		msg := &examplev1.TimestampedEvent{UpdatedAt: ts}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if got.UpdatedAt.GetSeconds() != ts.GetSeconds() {
+			t.Errorf("seconds mismatch: want %d, got %d", ts.GetSeconds(), got.UpdatedAt.GetSeconds())
+		}
+	})
+
+	t.Run("26bit_unsigned_forward_only_roundtrip", func(t *testing.T) {
+		// recorded_at: 26-bit unsigned seconds from 2026-01-01
+		// Use 2026-06-15 (≈ 165 days after epoch = 14,256,000 seconds)
+		offset := int64(14_256_000)
+		ts := timestamppb.New(time.Unix(epoch2026+offset, 0).UTC())
+		msg := &examplev1.TimestampedEvent{RecordedAt: ts}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if got.RecordedAt.GetSeconds() != epoch2026+offset {
+			t.Errorf("seconds mismatch: want %d, got %d", epoch2026+offset, got.RecordedAt.GetSeconds())
+		}
+	})
+
+	t.Run("32bit_milliseconds_roundtrip", func(t *testing.T) {
+		// event_ms: 32-bit signed milliseconds from 2026-01-01
+		// Use 2026-01-02 00:00:00.500 UTC (86400500 ms after epoch)
+		ts := timestamppb.New(time.Unix(epoch2026+86400, 500_000_000).UTC())
+		msg := &examplev1.TimestampedEvent{EventMs: ts}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		// millisecond granularity: sub-ms nanos are discarded
+		wantSecs := epoch2026 + 86400
+		wantNanos := int32(500_000_000)
+		if got.EventMs.GetSeconds() != wantSecs || got.EventMs.GetNanos() != wantNanos {
+			t.Errorf("ms roundtrip mismatch: want %d.%09d, got %d.%09d",
+				wantSecs, wantNanos, got.EventMs.GetSeconds(), got.EventMs.GetNanos())
+		}
+	})
+
+	t.Run("nil_timestamp_presence_bit", func(t *testing.T) {
+		// nil timestamp → presence=0, field absent after unpack
+		msg := &examplev1.TimestampedEvent{}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if got.RecordedAt != nil {
+			t.Errorf("expected nil RecordedAt, got %v", got.RecordedAt)
+		}
+	})
+
+	t.Run("forward_only_before_epoch_overflow_error", func(t *testing.T) {
+		// timestamp before 2026-01-01 epoch should fail with OverflowError for forward_only
+		ts := timestamppb.New(time.Unix(epoch2026-1, 0).UTC()) // 1 second before epoch
+		msg := &examplev1.TimestampedEvent{RecordedAt: ts}
+		_, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err == nil {
+			t.Error("expected PackError for timestamp before epoch with forward_only, got nil")
+		}
+	})
+
+	t.Run("forward_only_before_epoch_clamp", func(t *testing.T) {
+		// with OverflowClamp, pre-epoch timestamp clamps to 0 (= epoch itself)
+		ts := timestamppb.New(time.Unix(epoch2026-100, 0).UTC())
+		msg := &examplev1.TimestampedEvent{RecordedAt: ts}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowClamp)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		// clamped to 0 offset → stored epoch
+		if got.RecordedAt.GetSeconds() != epoch2026 {
+			t.Errorf("clamp: want epoch %d, got %d", epoch2026, got.RecordedAt.GetSeconds())
+		}
+	})
+
+	t.Run("bit_size_timestamp_fields", func(t *testing.T) {
+		// All three fields present:
+		// updated_at:  1(presence) + 64(seconds) = 65 bits
+		// recorded_at: 1(presence) + 26(seconds) = 27 bits
+		// event_ms:    1(presence) + 32(ms)       = 33 bits
+		// Total: 125 bits → 16 bytes
+		ts1 := timestamppb.New(time.Unix(1_700_000_000, 0).UTC())
+		ts2 := timestamppb.New(time.Unix(epoch2026+1000, 0).UTC())
+		ts3 := timestamppb.New(time.Unix(epoch2026+86400, 0).UTC())
+		msg := &examplev1.TimestampedEvent{UpdatedAt: ts1, RecordedAt: ts2, EventMs: ts3}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		if len(data) != 16 {
+			t.Errorf("expected 16 bytes for 3 timestamp fields, got %d", len(data))
+		}
+	})
 }
 
 // TestOverflowStrategy verifies all strategy behaviours.

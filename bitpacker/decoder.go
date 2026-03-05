@@ -2,8 +2,10 @@ package bitpacker
 
 import (
 	"math"
+	"time"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func (p *Packer) decodeMessage(r *bitReader, msg protoreflect.Message, schema *messageSchema) error {
@@ -33,6 +35,10 @@ func (p *Packer) decodeField(r *bitReader, msg protoreflect.Message, u *scalarFi
 		if presence == 0 {
 			return nil
 		}
+	}
+
+	if u.isTimestamp {
+		return p.decodeTimestamp(r, msg, u)
 	}
 
 	if u.isMessage {
@@ -107,6 +113,81 @@ func (p *Packer) decodeField(r *bitReader, msg protoreflect.Message, u *scalarFi
 		return err
 	}
 	msg.Set(fd, val)
+	return nil
+}
+
+func (p *Packer) decodeTimestamp(r *bitReader, msg protoreflect.Message, u *scalarFieldUnit) error {
+	fd := u.fd
+	fieldName := string(fd.Name())
+
+	presence, err := r.readBits(1)
+	if err != nil {
+		return &UnpackError{Field: fieldName, Reason: ErrUnexpectedEOF.Error()}
+	}
+	if presence == 0 {
+		return nil
+	}
+
+	fo := getFieldOpts(fd)
+	tso := fo.GetTimestamp()
+
+	bitsN := u.bits
+	if bitsN == 0 {
+		bitsN = 64
+	}
+
+	var epochSecs int64
+	var granularity int64 = 1
+	if tso != nil {
+		epochSecs = tso.GetEpochSeconds()
+		switch tso.GetGranularity() {
+		case 2: // MILLISECONDS
+			granularity = 1_000
+		case 3: // MICROSECONDS
+			granularity = 1_000_000
+		case 4: // NANOSECONDS
+			granularity = 1_000_000_000
+		}
+	}
+
+	raw, err := r.readBits(int(bitsN))
+	if err != nil {
+		return &UnpackError{Field: fieldName, Reason: ErrUnexpectedEOF.Error()}
+	}
+
+	forwardOnly := tso != nil && tso.GetForwardOnly()
+
+	var offset int64
+	if forwardOnly {
+		offset = int64(raw)
+	} else {
+		// Sign-extend
+		if bitsN < 64 && raw>>(bitsN-1) != 0 {
+			raw |= ^uint64((1 << bitsN) - 1)
+		}
+		offset = int64(raw)
+	}
+
+	epochUnits := epochSecs * granularity
+	tsUnits := offset + epochUnits
+
+	var t time.Time
+	switch granularity {
+	case 1:
+		t = time.Unix(tsUnits, 0).UTC()
+	case 1_000:
+		t = time.UnixMilli(tsUnits).UTC()
+	case 1_000_000:
+		t = time.UnixMicro(tsUnits).UTC()
+	default: // 1_000_000_000
+		t = time.Unix(tsUnits/1_000_000_000, tsUnits%1_000_000_000).UTC()
+	}
+
+	ts := timestamppb.New(t)
+	tsMsg := msg.Mutable(fd).Message()
+	tsFds := tsMsg.Descriptor().Fields()
+	tsMsg.Set(tsFds.ByName("seconds"), protoreflect.ValueOfInt64(ts.GetSeconds()))
+	tsMsg.Set(tsFds.ByName("nanos"), protoreflect.ValueOfInt32(ts.GetNanos()))
 	return nil
 }
 
