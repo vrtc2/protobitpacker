@@ -140,27 +140,8 @@ func (p *Packer) encodeTimestamp(w *bitWriter, msg protoreflect.Message, u *scal
 	tsFds := tsMsg.Descriptor().Fields()
 	secs := tsMsg.Get(tsFds.ByName("seconds")).Int()
 	nanos := int32(tsMsg.Get(tsFds.ByName("nanos")).Int())
-	fo := getFieldOpts(fd)
-	tso := fo.GetTimestamp()
 
-	bitsN := u.bits
-	if bitsN == 0 {
-		bitsN = 64
-	}
-
-	var epochSecs int64
-	var granularity int64 = 1 // units per second
-	if tso != nil {
-		epochSecs = tso.GetEpochSeconds()
-		switch tso.GetGranularity() {
-		case 2: // MILLISECONDS
-			granularity = 1_000
-		case 3: // MICROSECONDS
-			granularity = 1_000_000
-		case 4: // NANOSECONDS
-			granularity = 1_000_000_000
-		}
-	}
+	bitsN, epochSecs, granularity, forwardOnly := tsParams(u)
 
 	var tsUnits int64
 	switch granularity {
@@ -177,7 +158,6 @@ func (p *Packer) encodeTimestamp(w *bitWriter, msg protoreflect.Message, u *scal
 	offset := tsUnits - epochUnits
 
 	eff := effectiveStrategy(fd, strategy)
-	forwardOnly := tso != nil && tso.GetForwardOnly()
 
 	if forwardOnly {
 		// unsigned: offset must be in [0, 2^bitsN - 1]

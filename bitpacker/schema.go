@@ -121,7 +121,11 @@ func buildScalarUnit(fd protoreflect.FieldDescriptor, md protoreflect.MessageDes
 	}
 
 	od := fd.ContainingOneof()
-	if od != nil && od.IsSynthetic() {
+	// Message-kind fields (isMessage, isTimestamp) handle their own presence bit internally,
+	// so isOptional must not be set for them — it would produce a double presence bit on wire.
+	if od != nil && od.IsSynthetic() &&
+		fd.Kind() != protoreflect.MessageKind &&
+		fd.Kind() != protoreflect.GroupKind {
 		unit.isOptional = true
 	}
 

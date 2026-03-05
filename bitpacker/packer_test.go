@@ -166,6 +166,61 @@ func TestPackUnpackPacket_OneofNone(t *testing.T) {
 	}
 }
 
+func TestPackUnpackPacket_OptionalMessage(t *testing.T) {
+	// Verifies that proto3 optional nested message does NOT produce a double presence bit.
+	// Before the fix in buildScalarUnit, isOptional=true and isMessage=true would both
+	// emit a presence bit, corrupting the wire layout for subsequent fields.
+	label := "lab"
+	msg := &examplev1.Packet{
+		Sequence: 42,
+		Payload:  &examplev1.Packet_Command{Command: 7},
+		LastReading: &examplev1.SensorReading{
+			SensorId:    3,
+			HumidityPct: 55,
+			Label:       &label,
+		},
+	}
+
+	data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+	if err != nil {
+		t.Fatalf("Pack error: %v", err)
+	}
+
+	got := &examplev1.Packet{}
+	if err := bitpacker.Unpack(data, got); err != nil {
+		t.Fatalf("Unpack error: %v", err)
+	}
+
+	if !proto.Equal(msg, got) {
+		t.Errorf("roundtrip mismatch:\n  want: %v\n   got: %v", msg, got)
+	}
+}
+
+func TestPackUnpackPacket_OptionalMessage_Nil(t *testing.T) {
+	// Optional nested message absent → field stays nil, subsequent fields are unaffected.
+	msg := &examplev1.Packet{
+		Sequence: 99,
+		Payload:  &examplev1.Packet_Ack{Ack: true},
+	}
+
+	data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+	if err != nil {
+		t.Fatalf("Pack error: %v", err)
+	}
+
+	got := &examplev1.Packet{}
+	if err := bitpacker.Unpack(data, got); err != nil {
+		t.Fatalf("Unpack error: %v", err)
+	}
+
+	if !proto.Equal(msg, got) {
+		t.Errorf("roundtrip mismatch:\n  want: %v\n   got: %v", msg, got)
+	}
+	if got.LastReading != nil {
+		t.Errorf("expected nil LastReading, got %v", got.LastReading)
+	}
+}
+
 func TestPackUnpackBurst_Repeated(t *testing.T) {
 	label := "x"
 	msg := &examplev1.Burst{
@@ -453,6 +508,101 @@ func TestTimestamp(t *testing.T) {
 		}
 		if len(data) != 16 {
 			t.Errorf("expected 16 bytes for 3 timestamp fields, got %d", len(data))
+		}
+	})
+
+	t.Run("microseconds_roundtrip", func(t *testing.T) {
+		// event_us: 40-bit signed µs from 2026-01-01
+		// Use 2026-01-01 00:00:01.500000 UTC (1_500_000 µs after epoch)
+		ts := timestamppb.New(time.Unix(epoch2026+1, 500_000_000).UTC())
+		msg := &examplev1.TimestampedEvent{EventUs: ts}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		// microsecond granularity: sub-µs nanos are discarded → 500_000_000 ns preserved (500_000 µs × 1000)
+		wantSecs := epoch2026 + 1
+		wantNanos := int32(500_000_000)
+		if got.EventUs.GetSeconds() != wantSecs || got.EventUs.GetNanos() != wantNanos {
+			t.Errorf("µs roundtrip mismatch: want %d.%09d, got %d.%09d",
+				wantSecs, wantNanos, got.EventUs.GetSeconds(), got.EventUs.GetNanos())
+		}
+	})
+
+	t.Run("nanoseconds_roundtrip", func(t *testing.T) {
+		// event_ns: 32-bit signed ns from 2026-01-01
+		// Use 2026-01-01 00:00:00.123456789 UTC (123_456_789 ns after epoch)
+		ts := timestamppb.New(time.Unix(epoch2026, 123_456_789).UTC())
+		msg := &examplev1.TimestampedEvent{EventNs: ts}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		// nanosecond granularity: full ns precision preserved
+		if got.EventNs.GetSeconds() != epoch2026 || got.EventNs.GetNanos() != 123_456_789 {
+			t.Errorf("ns roundtrip mismatch: want %d.123456789, got %d.%09d",
+				epoch2026, got.EventNs.GetSeconds(), got.EventNs.GetNanos())
+		}
+	})
+
+	t.Run("signed_negative_offset_roundtrip", func(t *testing.T) {
+		// updated_at: 64-bit signed, Unix epoch — timestamp before epoch (negative offset)
+		// 1960-01-01T00:00:00Z = Unix -315619200
+		wantSecs := int64(-315_619_200)
+		ts := timestamppb.New(time.Unix(wantSecs, 0).UTC())
+		msg := &examplev1.TimestampedEvent{UpdatedAt: ts}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if got.UpdatedAt.GetSeconds() != wantSecs {
+			t.Errorf("negative offset roundtrip: want %d, got %d", wantSecs, got.UpdatedAt.GetSeconds())
+		}
+	})
+
+	t.Run("optional_timestamp_roundtrip", func(t *testing.T) {
+		// optional_ts: proto3 optional google.protobuf.Timestamp
+		// Tests that synthetic oneof does NOT produce a double presence bit.
+		ts := timestamppb.New(time.Unix(1_700_000_000, 123_000_000).UTC())
+		msg := &examplev1.TimestampedEvent{OptionalTs: ts}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if got.OptionalTs.GetSeconds() != ts.GetSeconds() {
+			t.Errorf("optional_ts roundtrip: want seconds %d, got %d", ts.GetSeconds(), got.OptionalTs.GetSeconds())
+		}
+	})
+
+	t.Run("optional_timestamp_nil_roundtrip", func(t *testing.T) {
+		// optional_ts absent → field stays nil after unpack
+		msg := &examplev1.TimestampedEvent{}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if got.OptionalTs != nil {
+			t.Errorf("expected nil OptionalTs, got %v", got.OptionalTs)
 		}
 	})
 }

@@ -63,6 +63,9 @@ message Packet {
     // Acknowledgement flag.
     bool ack = 4;
   }
+
+  // Optional nested message — tests that proto3 optional does not produce double presence bit.
+  optional SensorReading last_reading = 5;
 }
 
 // Burst demonstrates repeated scalar and repeated message fields.
@@ -103,9 +106,12 @@ message Config {
 //   updated_at:  64-bit signed seconds from Unix epoch (default, no annotation)
 //   recorded_at: 26-bit unsigned seconds from 2026-01-01 — covers ~2 years, 4 bytes
 //   event_ms:    32-bit signed milliseconds from 2026-01-01 — ~24 days range, 4 bytes
+//   event_us:    40-bit signed microseconds from 2026-01-01 — ~6 days range, µs precision
+//   event_ns:    32-bit signed nanoseconds from 2026-01-01 — ~2 seconds range, ns precision
+//   optional_ts: proto3 optional, 64-bit signed Unix seconds
 //
-// Total (all present): 1+64 + 1+26 + 1+32 = 125 bits → 16 bytes
-// Standard protobuf Timestamp × 3:                      ≈ 36 bytes
+// Total (fields 1-3 present): 1+64 + 1+26 + 1+32 = 125 bits → 16 bytes
+// Standard protobuf Timestamp × 3:                            ≈ 36 bytes
 message TimestampedEvent {
   // Last update — 64-bit signed Unix seconds (smart default, no annotation needed).
   google.protobuf.Timestamp updated_at = 1;
@@ -129,6 +135,30 @@ message TimestampedEvent {
       granularity: TIMESTAMP_GRANULARITY_MILLISECONDS
     }
   ];
+
+  // Event time — 40-bit signed microseconds from 2026-01-01.
+  // Range: ±~6 days around the epoch, microsecond precision.
+  google.protobuf.Timestamp event_us = 4 [
+    (bitpacker.v1.field).bits = 40,
+    (bitpacker.v1.field).timestamp = {
+      epoch_seconds: 1735689600,  // 2026-01-01T00:00:00Z
+      granularity: TIMESTAMP_GRANULARITY_MICROSECONDS
+    }
+  ];
+
+  // Event time — 32-bit signed nanoseconds from 2026-01-01.
+  // Range: ±~2 seconds around the epoch, full nanosecond precision.
+  google.protobuf.Timestamp event_ns = 5 [
+    (bitpacker.v1.field).bits = 32,
+    (bitpacker.v1.field).timestamp = {
+      epoch_seconds: 1735689600,  // 2026-01-01T00:00:00Z
+      granularity: TIMESTAMP_GRANULARITY_NANOSECONDS
+    }
+  ];
+
+  // Optional timestamp using proto3 optional keyword — tests presence bit handling.
+  // 64-bit signed Unix seconds (default encoding).
+  optional google.protobuf.Timestamp optional_ts = 6;
 }
 
 // FloatSample demonstrates fixed-point decimal encoding for float and double fields.

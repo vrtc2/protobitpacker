@@ -186,7 +186,9 @@ type Packet struct {
 	//	*Packet_Raw
 	//	*Packet_Command
 	//	*Packet_Ack
-	Payload       isPacket_Payload `protobuf_oneof:"payload"`
+	Payload isPacket_Payload `protobuf_oneof:"payload"`
+	// Optional nested message — tests that proto3 optional does not produce double presence bit.
+	LastReading   *SensorReading `protobuf:"bytes,5,opt,name=last_reading,json=lastReading,proto3,oneof" json:"last_reading,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -260,6 +262,13 @@ func (x *Packet) GetAck() bool {
 		}
 	}
 	return false
+}
+
+func (x *Packet) GetLastReading() *SensorReading {
+	if x != nil {
+		return x.LastReading
+	}
+	return nil
 }
 
 type isPacket_Payload interface {
@@ -407,9 +416,12 @@ func (x *Config) GetSettings() map[string]uint32 {
 //	updated_at:  64-bit signed seconds from Unix epoch (default, no annotation)
 //	recorded_at: 26-bit unsigned seconds from 2026-01-01 — covers ~2 years, 4 bytes
 //	event_ms:    32-bit signed milliseconds from 2026-01-01 — ~24 days range, 4 bytes
+//	event_us:    40-bit signed microseconds from 2026-01-01 — ~6 days range, µs precision
+//	event_ns:    32-bit signed nanoseconds from 2026-01-01 — ~2 seconds range, ns precision
+//	optional_ts: proto3 optional, 64-bit signed Unix seconds
 //
-// Total (all present): 1+64 + 1+26 + 1+32 = 125 bits → 16 bytes
-// Standard protobuf Timestamp × 3:                      ≈ 36 bytes
+// Total (fields 1-3 present): 1+64 + 1+26 + 1+32 = 125 bits → 16 bytes
+// Standard protobuf Timestamp × 3:                            ≈ 36 bytes
 type TimestampedEvent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Last update — 64-bit signed Unix seconds (smart default, no annotation needed).
@@ -419,7 +431,16 @@ type TimestampedEvent struct {
 	RecordedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=recorded_at,json=recordedAt,proto3" json:"recorded_at,omitempty"`
 	// Event time — 32-bit signed milliseconds from 2026-01-01.
 	// Range: ±~24 days around the epoch.
-	EventMs       *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=event_ms,json=eventMs,proto3" json:"event_ms,omitempty"`
+	EventMs *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=event_ms,json=eventMs,proto3" json:"event_ms,omitempty"`
+	// Event time — 40-bit signed microseconds from 2026-01-01.
+	// Range: ±~6 days around the epoch, microsecond precision.
+	EventUs *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=event_us,json=eventUs,proto3" json:"event_us,omitempty"`
+	// Event time — 32-bit signed nanoseconds from 2026-01-01.
+	// Range: ±~2 seconds around the epoch, full nanosecond precision.
+	EventNs *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=event_ns,json=eventNs,proto3" json:"event_ns,omitempty"`
+	// Optional timestamp using proto3 optional keyword — tests presence bit handling.
+	// 64-bit signed Unix seconds (default encoding).
+	OptionalTs    *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=optional_ts,json=optionalTs,proto3,oneof" json:"optional_ts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -471,6 +492,27 @@ func (x *TimestampedEvent) GetRecordedAt() *timestamppb.Timestamp {
 func (x *TimestampedEvent) GetEventMs() *timestamppb.Timestamp {
 	if x != nil {
 		return x.EventMs
+	}
+	return nil
+}
+
+func (x *TimestampedEvent) GetEventUs() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EventUs
+	}
+	return nil
+}
+
+func (x *TimestampedEvent) GetEventNs() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EventNs
+	}
+	return nil
+}
+
+func (x *TimestampedEvent) GetOptionalTs() *timestamppb.Timestamp {
+	if x != nil {
+		return x.OptionalTs
 	}
 	return nil
 }
@@ -562,13 +604,15 @@ const file_bitpacker_v1_example_example_proto_rawDesc = "" +
 	"\x05alert\x18\x04 \x01(\bR\x05alert\x12B\n" +
 	"\x06status\x18\x05 \x01(\x0e2\".bitpacker.v1.example.SensorStatusB\x06\x82\xb5\x18\x02\b\x02R\x06status\x12!\n" +
 	"\x05label\x18\x06 \x01(\tB\x06\x82\xb5\x18\x02\x10\x05H\x00R\x05label\x88\x01\x01B\b\n" +
-	"\x06_label\"\x93\x01\n" +
+	"\x06_label\"\xf1\x01\n" +
 	"\x06Packet\x12\"\n" +
 	"\bsequence\x18\x01 \x01(\rB\x06\x82\xb5\x18\x02\b\x10R\bsequence\x12\x1a\n" +
 	"\x03raw\x18\x02 \x01(\fB\x06\x82\xb5\x18\x02\x10\bH\x00R\x03raw\x12\"\n" +
 	"\acommand\x18\x03 \x01(\rB\x06\x82\xb5\x18\x02\b\bH\x00R\acommand\x12\x12\n" +
-	"\x03ack\x18\x04 \x01(\bH\x00R\x03ackB\x11\n" +
-	"\apayload\x12\x06\x8a\xb5\x18\x02\b\x02\"\x99\x01\n" +
+	"\x03ack\x18\x04 \x01(\bH\x00R\x03ack\x12K\n" +
+	"\flast_reading\x18\x05 \x01(\v2#.bitpacker.v1.example.SensorReadingH\x01R\vlastReading\x88\x01\x01B\x11\n" +
+	"\apayload\x12\x06\x8a\xb5\x18\x02\b\x02B\x0f\n" +
+	"\r_last_reading\"\x99\x01\n" +
 	"\x05Burst\x12G\n" +
 	"\breadings\x18\x01 \x03(\v2#.bitpacker.v1.example.SensorReadingB\x06\x82\xb5\x18\x02\x18\bR\breadings\x12)\n" +
 	"\vadc_samples\x18\x02 \x03(\rB\b\x82\xb5\x18\x04\b\f\x18\x04R\n" +
@@ -579,13 +623,18 @@ const file_bitpacker_v1_example_example_proto_rawDesc = "" +
 	"\x82\xb5\x18\x06\b\x10\x18\x06(\x05R\bsettings\x1a;\n" +
 	"\rSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\xe5\x01\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\xc9\x03\n" +
 	"\x10TimestampedEvent\x129\n" +
 	"\n" +
 	"updated_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12M\n" +
 	"\vrecorded_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampB\x10\x82\xb5\x18\f\b\x1aJ\b\b\x80\x8bһ\x06\x18\x01R\n" +
 	"recordedAt\x12G\n" +
-	"\bevent_ms\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampB\x10\x82\xb5\x18\f\b J\b\b\x80\x8bһ\x06\x10\x02R\aeventMs\"\x8b\x01\n" +
+	"\bevent_ms\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampB\x10\x82\xb5\x18\f\b J\b\b\x80\x8bһ\x06\x10\x02R\aeventMs\x12G\n" +
+	"\bevent_us\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampB\x10\x82\xb5\x18\f\b(J\b\b\x80\x8bһ\x06\x10\x03R\aeventUs\x12G\n" +
+	"\bevent_ns\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampB\x10\x82\xb5\x18\f\b J\b\b\x80\x8bһ\x06\x10\x04R\aeventNs\x12@\n" +
+	"\voptional_ts\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampH\x00R\n" +
+	"optionalTs\x88\x01\x01B\x0e\n" +
+	"\f_optional_ts\"\x8b\x01\n" +
 	"\vFloatSample\x12,\n" +
 	"\vtemperature\x18\x01 \x01(\x02B\n" +
 	"\x82\xb5\x18\x06\b\n" +
@@ -627,17 +676,21 @@ var file_bitpacker_v1_example_example_proto_goTypes = []any{
 	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
 }
 var file_bitpacker_v1_example_example_proto_depIdxs = []int32{
-	0, // 0: bitpacker.v1.example.SensorReading.status:type_name -> bitpacker.v1.example.SensorStatus
-	1, // 1: bitpacker.v1.example.Burst.readings:type_name -> bitpacker.v1.example.SensorReading
-	7, // 2: bitpacker.v1.example.Config.settings:type_name -> bitpacker.v1.example.Config.SettingsEntry
-	8, // 3: bitpacker.v1.example.TimestampedEvent.updated_at:type_name -> google.protobuf.Timestamp
-	8, // 4: bitpacker.v1.example.TimestampedEvent.recorded_at:type_name -> google.protobuf.Timestamp
-	8, // 5: bitpacker.v1.example.TimestampedEvent.event_ms:type_name -> google.protobuf.Timestamp
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	0,  // 0: bitpacker.v1.example.SensorReading.status:type_name -> bitpacker.v1.example.SensorStatus
+	1,  // 1: bitpacker.v1.example.Packet.last_reading:type_name -> bitpacker.v1.example.SensorReading
+	1,  // 2: bitpacker.v1.example.Burst.readings:type_name -> bitpacker.v1.example.SensorReading
+	7,  // 3: bitpacker.v1.example.Config.settings:type_name -> bitpacker.v1.example.Config.SettingsEntry
+	8,  // 4: bitpacker.v1.example.TimestampedEvent.updated_at:type_name -> google.protobuf.Timestamp
+	8,  // 5: bitpacker.v1.example.TimestampedEvent.recorded_at:type_name -> google.protobuf.Timestamp
+	8,  // 6: bitpacker.v1.example.TimestampedEvent.event_ms:type_name -> google.protobuf.Timestamp
+	8,  // 7: bitpacker.v1.example.TimestampedEvent.event_us:type_name -> google.protobuf.Timestamp
+	8,  // 8: bitpacker.v1.example.TimestampedEvent.event_ns:type_name -> google.protobuf.Timestamp
+	8,  // 9: bitpacker.v1.example.TimestampedEvent.optional_ts:type_name -> google.protobuf.Timestamp
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_bitpacker_v1_example_example_proto_init() }
@@ -651,6 +704,7 @@ func file_bitpacker_v1_example_example_proto_init() {
 		(*Packet_Command)(nil),
 		(*Packet_Ack)(nil),
 	}
+	file_bitpacker_v1_example_example_proto_msgTypes[4].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

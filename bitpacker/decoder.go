@@ -128,34 +128,12 @@ func (p *Packer) decodeTimestamp(r *bitReader, msg protoreflect.Message, u *scal
 		return nil
 	}
 
-	fo := getFieldOpts(fd)
-	tso := fo.GetTimestamp()
-
-	bitsN := u.bits
-	if bitsN == 0 {
-		bitsN = 64
-	}
-
-	var epochSecs int64
-	var granularity int64 = 1
-	if tso != nil {
-		epochSecs = tso.GetEpochSeconds()
-		switch tso.GetGranularity() {
-		case 2: // MILLISECONDS
-			granularity = 1_000
-		case 3: // MICROSECONDS
-			granularity = 1_000_000
-		case 4: // NANOSECONDS
-			granularity = 1_000_000_000
-		}
-	}
+	bitsN, epochSecs, granularity, forwardOnly := tsParams(u)
 
 	raw, err := r.readBits(int(bitsN))
 	if err != nil {
 		return &UnpackError{Field: fieldName, Reason: ErrUnexpectedEOF.Error()}
 	}
-
-	forwardOnly := tso != nil && tso.GetForwardOnly()
 
 	var offset int64
 	if forwardOnly {
