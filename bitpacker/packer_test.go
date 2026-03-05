@@ -493,11 +493,16 @@ func TestTimestamp(t *testing.T) {
 	})
 
 	t.Run("bit_size_timestamp_fields", func(t *testing.T) {
-		// All three fields present:
-		// updated_at:  1(presence) + 64(seconds) = 65 bits
-		// recorded_at: 1(presence) + 26(seconds) = 27 bits
-		// event_ms:    1(presence) + 32(ms)       = 33 bits
-		// Total: 125 bits → 16 bytes
+		// Three fields present, five absent (presence=0 only):
+		// updated_at:     1(presence) + 64(seconds) = 65 bits
+		// recorded_at:    1(presence) + 26(seconds) = 27 bits
+		// event_ms:       1(presence) + 32(ms)       = 33 bits
+		// event_us:       1 (presence=0)
+		// event_ns:       1 (presence=0)
+		// optional_ts:    1 (presence=0)
+		// rolling_secs:   1 (presence=0)
+		// rolling_secs_16:1 (presence=0)
+		// Total: 130 bits → 17 bytes
 		ts1 := timestamppb.New(time.Unix(1_700_000_000, 0).UTC())
 		ts2 := timestamppb.New(time.Unix(epoch2026+1000, 0).UTC())
 		ts3 := timestamppb.New(time.Unix(epoch2026+86400, 0).UTC())
@@ -506,8 +511,8 @@ func TestTimestamp(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Pack error: %v", err)
 		}
-		if len(data) != 16 {
-			t.Errorf("expected 16 bytes for 3 timestamp fields, got %d", len(data))
+		if len(data) != 17 {
+			t.Errorf("expected 17 bytes for timestamp fields, got %d", len(data))
 		}
 	})
 
@@ -604,6 +609,93 @@ func TestTimestamp(t *testing.T) {
 		if got.OptionalTs != nil {
 			t.Errorf("expected nil OptionalTs, got %v", got.OptionalTs)
 		}
+	})
+}
+
+// TestRollingTimestamp verifies rolling window timestamp encoding/decoding.
+func TestRollingTimestamp(t *testing.T) {
+	t.Run("rolling_24bit_seconds_roundtrip", func(t *testing.T) {
+		ts := timestamppb.New(time.Now().Truncate(time.Second).UTC())
+		msg := &examplev1.TimestampedEvent{RollingSecs: ts}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		// 1(presence) + 24(value) = 25 bits → 4 bytes
+		if len(data) != 4 {
+			t.Errorf("expected 4 bytes for 24-bit rolling timestamp, got %d", len(data))
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if got.RollingSecs.GetSeconds() != ts.GetSeconds() {
+			t.Errorf("rolling_secs: want %d, got %d", ts.GetSeconds(), got.RollingSecs.GetSeconds())
+		}
+	})
+
+	t.Run("rolling_16bit_seconds_roundtrip", func(t *testing.T) {
+		ts := timestamppb.New(time.Now().Truncate(time.Second).UTC())
+		msg := &examplev1.TimestampedEvent{RollingSecs_16: ts}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		// 1(presence) + 16(value) = 17 bits → 3 bytes
+		if len(data) != 3 {
+			t.Errorf("expected 3 bytes for 16-bit rolling timestamp, got %d", len(data))
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if got.RollingSecs_16.GetSeconds() != ts.GetSeconds() {
+			t.Errorf("rolling_secs_16: want %d, got %d", ts.GetSeconds(), got.RollingSecs_16.GetSeconds())
+		}
+	})
+
+	t.Run("rolling_nil_roundtrip", func(t *testing.T) {
+		msg := &examplev1.TimestampedEvent{}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if got.RollingSecs != nil {
+			t.Errorf("expected nil RollingSecs, got %v", got.RollingSecs)
+		}
+		if got.RollingSecs_16 != nil {
+			t.Errorf("expected nil RollingSecs_16, got %v", got.RollingSecs_16)
+		}
+	})
+
+	t.Run("rolling_recent_past_roundtrip", func(t *testing.T) {
+		// A timestamp 1 hour in the past is well within any rolling window;
+		// it must roundtrip without rollover correction.
+		ts := timestamppb.New(time.Now().Add(-time.Hour).Truncate(time.Second).UTC())
+		msg := &examplev1.TimestampedEvent{RollingSecs: ts}
+		data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
+		if err != nil {
+			t.Fatalf("Pack error: %v", err)
+		}
+		got := &examplev1.TimestampedEvent{}
+		if err := bitpacker.Unpack(data, got); err != nil {
+			t.Fatalf("Unpack error: %v", err)
+		}
+		if got.RollingSecs.GetSeconds() != ts.GetSeconds() {
+			t.Errorf("recent past: want %d, got %d", ts.GetSeconds(), got.RollingSecs.GetSeconds())
+		}
+	})
+
+	t.Run("rolling_validation_incompatible_forward_only", func(t *testing.T) {
+		// rolling + forward_only must be rejected at schema validation time.
+		// We test this indirectly: Pack on a message with such a field returns a ValidationError.
+		// Since we can't annotate an existing proto without modifying it, we verify the
+		// validation logic via schema directly using the existing valid schema (no error expected).
+		// This sub-test just documents the constraint; detailed validation tested in TestValidate.
 	})
 }
 

@@ -159,6 +159,20 @@ message TimestampedEvent {
   // Optional timestamp using proto3 optional keyword — tests presence bit handling.
   // 64-bit signed Unix seconds (default encoding).
   optional google.protobuf.Timestamp optional_ts = 6;
+
+  // Rolling 24-bit seconds — ~194 day window, 3 bytes wire (1 presence + 24 bits).
+  // Decoder reconstructs from current wall-clock time; no epoch configuration needed.
+  google.protobuf.Timestamp rolling_secs = 7 [
+    (bitpacker.v1.field).bits = 24,
+    (bitpacker.v1.field).timestamp = { rolling: true }
+  ];
+
+  // Rolling 16-bit seconds — ~18 hour window, 2 bytes wire (1 presence + 16 bits).
+  // Minimal footprint for high-frequency telemetry.
+  google.protobuf.Timestamp rolling_secs_16 = 8 [
+    (bitpacker.v1.field).bits = 16,
+    (bitpacker.v1.field).timestamp = { rolling: true }
+  ];
 }
 
 // FloatSample demonstrates fixed-point decimal encoding for float and double fields.

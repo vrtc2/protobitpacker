@@ -128,26 +128,52 @@ func (p *Packer) decodeTimestamp(r *bitReader, msg protoreflect.Message, u *scal
 		return nil
 	}
 
-	bitsN, epochSecs, granularity, forwardOnly := tsParams(u)
+	bitsN, epochSecs, granularity, forwardOnly, rolling := tsParams(u)
 
 	raw, err := r.readBits(int(bitsN))
 	if err != nil {
 		return &UnpackError{Field: fieldName, Reason: ErrUnexpectedEOF.Error()}
 	}
 
-	var offset int64
-	if forwardOnly {
-		offset = int64(raw)
-	} else {
-		// Sign-extend
-		if bitsN < 64 && raw>>(bitsN-1) != 0 {
-			raw |= ^uint64((1 << bitsN) - 1)
+	var tsUnits int64
+	if rolling {
+		var nowUnits int64
+		switch granularity {
+		case 1:
+			nowUnits = time.Now().Unix()
+		case 1_000:
+			nowUnits = time.Now().UnixMilli()
+		case 1_000_000:
+			nowUnits = time.Now().UnixMicro()
+		default: // 1_000_000_000
+			nowUnits = time.Now().UnixNano()
 		}
-		offset = int64(raw)
+		if bitsN >= 64 {
+			tsUnits = int64(raw)
+		} else {
+			windowSize := int64(1) << bitsN
+			windowStart := (nowUnits / windowSize) * windowSize
+			tsUnits = windowStart + int64(raw)
+			// If reconstructed time is more than half a window in the future,
+			// the encoded value belongs to the previous window (rollover).
+			if tsUnits-nowUnits > windowSize/2 {
+				tsUnits -= windowSize
+			}
+		}
+	} else {
+		var offset int64
+		if forwardOnly {
+			offset = int64(raw)
+		} else {
+			// Sign-extend
+			if bitsN < 64 && raw>>(bitsN-1) != 0 {
+				raw |= ^uint64((1 << bitsN) - 1)
+			}
+			offset = int64(raw)
+		}
+		epochUnits := epochSecs * granularity
+		tsUnits = offset + epochUnits
 	}
-
-	epochUnits := epochSecs * granularity
-	tsUnits := offset + epochUnits
 
 	var t time.Time
 	switch granularity {

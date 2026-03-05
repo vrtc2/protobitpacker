@@ -242,6 +242,15 @@ func validateScalarUnit(u *scalarFieldUnit, fd protoreflect.FieldDescriptor, md 
 			if u.bits > 64 {
 				return &ValidationError{Message: msgName, Field: fieldName, Reason: "timestamp field: bits must be 0..64"}
 			}
+			tso := fo.GetTimestamp()
+			if tso.GetRolling() {
+				if tso.GetForwardOnly() {
+					return &ValidationError{Message: msgName, Field: fieldName, Reason: "timestamp field: rolling is incompatible with forward_only"}
+				}
+				if tso.GetEpochSeconds() != 0 {
+					return &ValidationError{Message: msgName, Field: fieldName, Reason: "timestamp field: rolling ignores epoch_seconds, remove it to avoid confusion"}
+				}
+			}
 		}
 		// nested message: no annotation required, validated recursively
 	}

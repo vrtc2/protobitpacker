@@ -141,7 +141,7 @@ func (p *Packer) encodeTimestamp(w *bitWriter, msg protoreflect.Message, u *scal
 	secs := tsMsg.Get(tsFds.ByName("seconds")).Int()
 	nanos := int32(tsMsg.Get(tsFds.ByName("nanos")).Int())
 
-	bitsN, epochSecs, granularity, forwardOnly := tsParams(u)
+	bitsN, epochSecs, granularity, forwardOnly, rolling := tsParams(u)
 
 	var tsUnits int64
 	switch granularity {
@@ -154,6 +154,17 @@ func (p *Packer) encodeTimestamp(w *bitWriter, msg protoreflect.Message, u *scal
 	default: // 1_000_000_000
 		tsUnits = secs*1_000_000_000 + int64(nanos)
 	}
+
+	if rolling {
+		if bitsN >= 64 {
+			w.writeBits(uint64(tsUnits), 64)
+		} else {
+			windowSize := uint64(1) << bitsN
+			w.writeBits(uint64(tsUnits)%windowSize, int(bitsN))
+		}
+		return nil
+	}
+
 	epochUnits := epochSecs * granularity
 	offset := tsUnits - epochUnits
 

@@ -185,7 +185,15 @@ type TimestampOptions struct {
 	// When false (default), the offset is stored as a signed two's complement integer.
 	//   - Timestamps before and after the epoch are both representable.
 	//   - Range: [-2^(bits-1) .. 2^(bits-1)-1] units from epoch.
-	ForwardOnly   bool `protobuf:"varint,3,opt,name=forward_only,json=forwardOnly,proto3" json:"forward_only,omitempty"`
+	ForwardOnly bool `protobuf:"varint,3,opt,name=forward_only,json=forwardOnly,proto3" json:"forward_only,omitempty"`
+	// rolling: encode timestamp as unix-time-units mod 2^bits.
+	// The decoder uses the current wall-clock time to reconstruct the full timestamp.
+	// The reconstructable window is 2^bits time units; the decoder correctly handles
+	// rollover as long as the encoded timestamp is within ±(2^bits / 2) units of now.
+	//
+	// Incompatible with epoch_seconds (ignored when rolling) and forward_only.
+	// Applicable to: google.protobuf.Timestamp
+	Rolling       bool `protobuf:"varint,4,opt,name=rolling,proto3" json:"rolling,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -237,6 +245,13 @@ func (x *TimestampOptions) GetGranularity() TimestampGranularity {
 func (x *TimestampOptions) GetForwardOnly() bool {
 	if x != nil {
 		return x.ForwardOnly
+	}
+	return false
+}
+
+func (x *TimestampOptions) GetRolling() bool {
+	if x != nil {
+		return x.Rolling
 	}
 	return false
 }
@@ -586,11 +601,12 @@ var File_bitpacker_v1_options_proto protoreflect.FileDescriptor
 
 const file_bitpacker_v1_options_proto_rawDesc = "" +
 	"\n" +
-	"\x1abitpacker/v1/options.proto\x12\fbitpacker.v1\x1a google/protobuf/descriptor.proto\"\xa0\x01\n" +
+	"\x1abitpacker/v1/options.proto\x12\fbitpacker.v1\x1a google/protobuf/descriptor.proto\"\xba\x01\n" +
 	"\x10TimestampOptions\x12#\n" +
 	"\repoch_seconds\x18\x01 \x01(\x03R\fepochSeconds\x12D\n" +
 	"\vgranularity\x18\x02 \x01(\x0e2\".bitpacker.v1.TimestampGranularityR\vgranularity\x12!\n" +
-	"\fforward_only\x18\x03 \x01(\bR\vforwardOnly\"\xd0\x03\n" +
+	"\fforward_only\x18\x03 \x01(\bR\vforwardOnly\x12\x18\n" +
+	"\arolling\x18\x04 \x01(\bR\arolling\"\xd0\x03\n" +
 	"\fFieldOptions\x12\x12\n" +
 	"\x04bits\x18\x01 \x01(\rR\x04bits\x12\x1f\n" +
 	"\vlength_bits\x18\x02 \x01(\rR\n" +

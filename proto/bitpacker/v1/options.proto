@@ -55,6 +55,15 @@ message TimestampOptions {
   //   - Timestamps before and after the epoch are both representable.
   //   - Range: [-2^(bits-1) .. 2^(bits-1)-1] units from epoch.
   bool forward_only = 3;
+
+  // rolling: encode timestamp as unix-time-units mod 2^bits.
+  // The decoder uses the current wall-clock time to reconstruct the full timestamp.
+  // The reconstructable window is 2^bits time units; the decoder correctly handles
+  // rollover as long as the encoded timestamp is within ±(2^bits / 2) units of now.
+  //
+  // Incompatible with epoch_seconds (ignored when rolling) and forward_only.
+  // Applicable to: google.protobuf.Timestamp
+  bool rolling = 4;
 }
 
 // OverflowStrategy controls what happens when a value exceeds its declared bit width.

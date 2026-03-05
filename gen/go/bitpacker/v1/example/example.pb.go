@@ -440,9 +440,15 @@ type TimestampedEvent struct {
 	EventNs *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=event_ns,json=eventNs,proto3" json:"event_ns,omitempty"`
 	// Optional timestamp using proto3 optional keyword — tests presence bit handling.
 	// 64-bit signed Unix seconds (default encoding).
-	OptionalTs    *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=optional_ts,json=optionalTs,proto3,oneof" json:"optional_ts,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	OptionalTs *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=optional_ts,json=optionalTs,proto3,oneof" json:"optional_ts,omitempty"`
+	// Rolling 24-bit seconds — ~194 day window, 3 bytes wire (1 presence + 24 bits).
+	// Decoder reconstructs from current wall-clock time; no epoch configuration needed.
+	RollingSecs *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=rolling_secs,json=rollingSecs,proto3" json:"rolling_secs,omitempty"`
+	// Rolling 16-bit seconds — ~18 hour window, 2 bytes wire (1 presence + 16 bits).
+	// Minimal footprint for high-frequency telemetry.
+	RollingSecs_16 *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=rolling_secs_16,json=rollingSecs16,proto3" json:"rolling_secs_16,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *TimestampedEvent) Reset() {
@@ -513,6 +519,20 @@ func (x *TimestampedEvent) GetEventNs() *timestamppb.Timestamp {
 func (x *TimestampedEvent) GetOptionalTs() *timestamppb.Timestamp {
 	if x != nil {
 		return x.OptionalTs
+	}
+	return nil
+}
+
+func (x *TimestampedEvent) GetRollingSecs() *timestamppb.Timestamp {
+	if x != nil {
+		return x.RollingSecs
+	}
+	return nil
+}
+
+func (x *TimestampedEvent) GetRollingSecs_16() *timestamppb.Timestamp {
+	if x != nil {
+		return x.RollingSecs_16
 	}
 	return nil
 }
@@ -623,7 +643,7 @@ const file_bitpacker_v1_example_example_proto_rawDesc = "" +
 	"\x82\xb5\x18\x06\b\x10\x18\x06(\x05R\bsettings\x1a;\n" +
 	"\rSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\xc9\x03\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\xe4\x04\n" +
 	"\x10TimestampedEvent\x129\n" +
 	"\n" +
 	"updated_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12M\n" +
@@ -633,7 +653,11 @@ const file_bitpacker_v1_example_example_proto_rawDesc = "" +
 	"\bevent_us\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampB\x10\x82\xb5\x18\f\b(J\b\b\x80\x8bһ\x06\x10\x03R\aeventUs\x12G\n" +
 	"\bevent_ns\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampB\x10\x82\xb5\x18\f\b J\b\b\x80\x8bһ\x06\x10\x04R\aeventNs\x12@\n" +
 	"\voptional_ts\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampH\x00R\n" +
-	"optionalTs\x88\x01\x01B\x0e\n" +
+	"optionalTs\x88\x01\x01\x12I\n" +
+	"\frolling_secs\x18\a \x01(\v2\x1a.google.protobuf.TimestampB\n" +
+	"\x82\xb5\x18\x06\b\x18J\x02 \x01R\vrollingSecs\x12N\n" +
+	"\x0frolling_secs_16\x18\b \x01(\v2\x1a.google.protobuf.TimestampB\n" +
+	"\x82\xb5\x18\x06\b\x10J\x02 \x01R\rrollingSecs16B\x0e\n" +
 	"\f_optional_ts\"\x8b\x01\n" +
 	"\vFloatSample\x12,\n" +
 	"\vtemperature\x18\x01 \x01(\x02B\n" +
@@ -686,11 +710,13 @@ var file_bitpacker_v1_example_example_proto_depIdxs = []int32{
 	8,  // 7: bitpacker.v1.example.TimestampedEvent.event_us:type_name -> google.protobuf.Timestamp
 	8,  // 8: bitpacker.v1.example.TimestampedEvent.event_ns:type_name -> google.protobuf.Timestamp
 	8,  // 9: bitpacker.v1.example.TimestampedEvent.optional_ts:type_name -> google.protobuf.Timestamp
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	8,  // 10: bitpacker.v1.example.TimestampedEvent.rolling_secs:type_name -> google.protobuf.Timestamp
+	8,  // 11: bitpacker.v1.example.TimestampedEvent.rolling_secs_16:type_name -> google.protobuf.Timestamp
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_bitpacker_v1_example_example_proto_init() }
