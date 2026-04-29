@@ -154,10 +154,12 @@ func (p *Packer) decodeTimestamp(r *bitReader, msg protoreflect.Message, u *scal
 			windowSize := int64(1) << bitsN
 			windowStart := (nowUnits / windowSize) * windowSize
 			tsUnits = windowStart + int64(raw)
-			// If reconstructed time is more than half a window in the future,
-			// the encoded value belongs to the previous window (rollover).
+			// Pick the window closest to now: shift down if too far in the future,
+			// shift up if too far in the past (encoded value is in the next window).
 			if tsUnits-nowUnits > windowSize/2 {
 				tsUnits -= windowSize
+			} else if nowUnits-tsUnits > windowSize/2 {
+				tsUnits += windowSize
 			}
 		}
 	} else {
