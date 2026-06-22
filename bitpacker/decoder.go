@@ -8,14 +8,14 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func (p *Packer) decodeMessage(r *bitReader, msg protoreflect.Message, schema *messageSchema) error {
-	for _, unit := range schema.units {
+func (p *Packer) decodeMessage(r *bitReader, msg protoreflect.Message, schema *MessageSchema) error {
+	for _, unit := range schema.Units {
 		switch u := unit.(type) {
-		case *scalarFieldUnit:
+		case *ScalarFieldUnit:
 			if err := p.decodeField(r, msg, u); err != nil {
 				return err
 			}
-		case *oneofUnit:
+		case *OneofUnit:
 			if err := p.decodeOneof(r, msg, u); err != nil {
 				return err
 			}
@@ -24,10 +24,10 @@ func (p *Packer) decodeMessage(r *bitReader, msg protoreflect.Message, schema *m
 	return nil
 }
 
-func (p *Packer) decodeField(r *bitReader, msg protoreflect.Message, u *scalarFieldUnit) error {
-	fd := u.fd
+func (p *Packer) decodeField(r *bitReader, msg protoreflect.Message, u *ScalarFieldUnit) error {
+	fd := u.Fd
 
-	if u.isOptional {
+	if u.IsOptional {
 		presence, err := r.readBits(1)
 		if err != nil {
 			return &UnpackError{Field: string(fd.Name()), Reason: ErrUnexpectedEOF.Error()}
@@ -37,11 +37,11 @@ func (p *Packer) decodeField(r *bitReader, msg protoreflect.Message, u *scalarFi
 		}
 	}
 
-	if u.isTimestamp {
+	if u.IsTimestamp {
 		return p.decodeTimestamp(r, msg, u)
 	}
 
-	if u.isMessage {
+	if u.IsMessage {
 		presence, err := r.readBits(1)
 		if err != nil {
 			return &UnpackError{Field: string(fd.Name()), Reason: ErrUnexpectedEOF.Error()}
@@ -58,7 +58,7 @@ func (p *Packer) decodeField(r *bitReader, msg protoreflect.Message, u *scalarFi
 	}
 
 	if fd.IsList() {
-		count, err := r.readBits(int(u.countBits))
+		count, err := r.readBits(int(u.CountBits))
 		if err != nil {
 			return &UnpackError{Field: string(fd.Name()), Reason: ErrUnexpectedEOF.Error()}
 		}
@@ -78,7 +78,7 @@ func (p *Packer) decodeField(r *bitReader, msg protoreflect.Message, u *scalarFi
 			}
 		} else {
 			for i := uint64(0); i < count; i++ {
-				val, err := p.decodeScalar(r, fd, u.bits, u.lengthBits)
+				val, err := p.decodeScalar(r, fd, u.Bits, u.LengthBits)
 				if err != nil {
 					return err
 				}
@@ -89,7 +89,7 @@ func (p *Packer) decodeField(r *bitReader, msg protoreflect.Message, u *scalarFi
 	}
 
 	if fd.IsMap() {
-		count, err := r.readBits(int(u.countBits))
+		count, err := r.readBits(int(u.CountBits))
 		if err != nil {
 			return &UnpackError{Field: string(fd.Name()), Reason: ErrUnexpectedEOF.Error()}
 		}
@@ -99,7 +99,7 @@ func (p *Packer) decodeField(r *bitReader, msg protoreflect.Message, u *scalarFi
 			if err != nil {
 				return err
 			}
-			val, err := p.decodeScalar(r, fd.MapValue(), u.bits, u.lengthBits)
+			val, err := p.decodeScalar(r, fd.MapValue(), u.Bits, u.LengthBits)
 			if err != nil {
 				return err
 			}
@@ -108,7 +108,7 @@ func (p *Packer) decodeField(r *bitReader, msg protoreflect.Message, u *scalarFi
 		return nil
 	}
 
-	val, err := p.decodeScalar(r, fd, u.bits, u.lengthBits)
+	val, err := p.decodeScalar(r, fd, u.Bits, u.LengthBits)
 	if err != nil {
 		return err
 	}
@@ -116,8 +116,8 @@ func (p *Packer) decodeField(r *bitReader, msg protoreflect.Message, u *scalarFi
 	return nil
 }
 
-func (p *Packer) decodeTimestamp(r *bitReader, msg protoreflect.Message, u *scalarFieldUnit) error {
-	fd := u.fd
+func (p *Packer) decodeTimestamp(r *bitReader, msg protoreflect.Message, u *ScalarFieldUnit) error {
+	fd := u.Fd
 	fieldName := string(fd.Name())
 
 	presence, err := r.readBits(1)
@@ -197,22 +197,22 @@ func (p *Packer) decodeTimestamp(r *bitReader, msg protoreflect.Message, u *scal
 	return nil
 }
 
-func (p *Packer) decodeOneof(r *bitReader, msg protoreflect.Message, u *oneofUnit) error {
-	selector, err := r.readBits(int(u.selectorBits))
+func (p *Packer) decodeOneof(r *bitReader, msg protoreflect.Message, u *OneofUnit) error {
+	selector, err := r.readBits(int(u.SelectorBits))
 	if err != nil {
-		return &UnpackError{Field: string(u.od.Name()), Reason: ErrUnexpectedEOF.Error()}
+		return &UnpackError{Field: string(u.Od.Name()), Reason: ErrUnexpectedEOF.Error()}
 	}
 	if selector == 0 {
 		return nil // no field set
 	}
 
 	idx := int(selector) - 1
-	if idx >= len(u.fields) {
-		return &UnpackError{Field: string(u.od.Name()), Reason: "selector index out of range"}
+	if idx >= len(u.Fields) {
+		return &UnpackError{Field: string(u.Od.Name()), Reason: "selector index out of range"}
 	}
 
-	su := u.fields[idx]
-	fd := su.fd
+	su := u.Fields[idx]
+	fd := su.Fd
 
 	if fd.Kind() == protoreflect.MessageKind || fd.Kind() == protoreflect.GroupKind {
 		nestedMsg := msg.Mutable(fd).Message()
@@ -223,7 +223,7 @@ func (p *Packer) decodeOneof(r *bitReader, msg protoreflect.Message, u *oneofUni
 		return p.decodeMessage(r, nestedMsg, nestedSchema)
 	}
 
-	val, err := p.decodeScalar(r, fd, su.bits, su.lengthBits)
+	val, err := p.decodeScalar(r, fd, su.Bits, su.LengthBits)
 	if err != nil {
 		return err
 	}
@@ -293,7 +293,7 @@ func (p *Packer) decodeScalar(r *bitReader, fd protoreflect.FieldDescriptor, bit
 		return protoreflect.ValueOfInt64(zagzig64(v)), nil
 
 	case protoreflect.FloatKind:
-		fo := getFieldOpts(fd)
+		fo := GetFieldOpts(fd)
 		if fo.Fixed != nil || fo.Ufixed != nil {
 			fp := fo.Fixed
 			if fp == nil {
@@ -332,7 +332,7 @@ func (p *Packer) decodeScalar(r *bitReader, fd protoreflect.FieldDescriptor, bit
 		}
 
 	case protoreflect.DoubleKind:
-		fo := getFieldOpts(fd)
+		fo := GetFieldOpts(fd)
 		if fo.Fixed != nil || fo.Ufixed != nil {
 			fp := fo.Fixed
 			if fp == nil {
@@ -413,13 +413,13 @@ func (p *Packer) decodeScalar(r *bitReader, fd protoreflect.FieldDescriptor, bit
 	return protoreflect.Value{}, &UnpackError{Field: fieldName, Reason: "unknown field kind"}
 }
 
-func (p *Packer) decodeMapKey(r *bitReader, fd protoreflect.FieldDescriptor, u *scalarFieldUnit) (protoreflect.MapKey, error) {
+func (p *Packer) decodeMapKey(r *bitReader, fd protoreflect.FieldDescriptor, u *ScalarFieldUnit) (protoreflect.MapKey, error) {
 	keyFd := fd.MapKey()
 	fieldName := string(fd.Name())
 
 	switch keyFd.Kind() {
 	case protoreflect.StringKind:
-		length, err := r.readBits(int(u.keyLengthBits))
+		length, err := r.readBits(int(u.KeyLengthBits))
 		if err != nil {
 			return protoreflect.MapKey{}, &UnpackError{Field: fieldName, Reason: ErrUnexpectedEOF.Error()}
 		}
@@ -437,41 +437,41 @@ func (p *Packer) decodeMapKey(r *bitReader, fd protoreflect.FieldDescriptor, u *
 		return protoreflect.ValueOfBool(v != 0).MapKey(), nil
 
 	case protoreflect.Sint32Kind:
-		v, err := r.readBits(int(u.keyBits))
+		v, err := r.readBits(int(u.KeyBits))
 		if err != nil {
 			return protoreflect.MapKey{}, &UnpackError{Field: fieldName, Reason: ErrUnexpectedEOF.Error()}
 		}
 		return protoreflect.ValueOfInt32(zagzig32(uint32(v))).MapKey(), nil
 
 	case protoreflect.Sint64Kind:
-		v, err := r.readBits(int(u.keyBits))
+		v, err := r.readBits(int(u.KeyBits))
 		if err != nil {
 			return protoreflect.MapKey{}, &UnpackError{Field: fieldName, Reason: ErrUnexpectedEOF.Error()}
 		}
 		return protoreflect.ValueOfInt64(zagzig64(v)).MapKey(), nil
 
 	case protoreflect.Int32Kind, protoreflect.Sfixed32Kind:
-		v, err := r.readBits(int(u.keyBits))
+		v, err := r.readBits(int(u.KeyBits))
 		if err != nil {
 			return protoreflect.MapKey{}, &UnpackError{Field: fieldName, Reason: ErrUnexpectedEOF.Error()}
 		}
-		if u.keyBits < 32 && v>>(u.keyBits-1) != 0 {
-			v |= ^uint64((1 << u.keyBits) - 1)
+		if u.KeyBits < 32 && v>>(u.KeyBits-1) != 0 {
+			v |= ^uint64((1 << u.KeyBits) - 1)
 		}
 		return protoreflect.ValueOfInt32(int32(v)).MapKey(), nil
 
 	case protoreflect.Int64Kind, protoreflect.Sfixed64Kind:
-		v, err := r.readBits(int(u.keyBits))
+		v, err := r.readBits(int(u.KeyBits))
 		if err != nil {
 			return protoreflect.MapKey{}, &UnpackError{Field: fieldName, Reason: ErrUnexpectedEOF.Error()}
 		}
-		if u.keyBits < 64 && v>>(u.keyBits-1) != 0 {
-			v |= ^uint64((1 << u.keyBits) - 1)
+		if u.KeyBits < 64 && v>>(u.KeyBits-1) != 0 {
+			v |= ^uint64((1 << u.KeyBits) - 1)
 		}
 		return protoreflect.ValueOfInt64(int64(v)).MapKey(), nil
 
 	default:
-		v, err := r.readBits(int(u.keyBits))
+		v, err := r.readBits(int(u.KeyBits))
 		if err != nil {
 			return protoreflect.MapKey{}, &UnpackError{Field: fieldName, Reason: ErrUnexpectedEOF.Error()}
 		}

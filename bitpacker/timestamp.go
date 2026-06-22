@@ -7,13 +7,13 @@ import (
 // tsParams extracts encoding parameters for a google.protobuf.Timestamp field.
 // bitsN defaults to 64 when not explicitly set in annotations.
 // granularity is the number of time units per second (1, 1_000, 1_000_000, or 1_000_000_000).
-func tsParams(u *scalarFieldUnit) (bitsN uint32, epochSecs int64, granularity int64, forwardOnly bool, rolling bool) {
-	bitsN = u.bits
+func tsParams(u *ScalarFieldUnit) (bitsN uint32, epochSecs int64, granularity int64, forwardOnly bool, rolling bool) {
+	bitsN = u.Bits
 	if bitsN == 0 {
 		bitsN = 64
 	}
 	granularity = 1
-	tso := getFieldOpts(u.fd).GetTimestamp()
+	tso := GetFieldOpts(u.Fd).GetTimestamp()
 	if tso != nil {
 		epochSecs = tso.GetEpochSeconds()
 		switch tso.GetGranularity() {

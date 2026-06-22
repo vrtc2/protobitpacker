@@ -7,14 +7,14 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-func (p *Packer) encodeMessage(w *bitWriter, msg protoreflect.Message, schema *messageSchema, strategy OverflowStrategy) error {
-	for _, unit := range schema.units {
+func (p *Packer) encodeMessage(w *bitWriter, msg protoreflect.Message, schema *MessageSchema, strategy OverflowStrategy) error {
+	for _, unit := range schema.Units {
 		switch u := unit.(type) {
-		case *scalarFieldUnit:
+		case *ScalarFieldUnit:
 			if err := p.encodeField(w, msg, u, strategy); err != nil {
 				return err
 			}
-		case *oneofUnit:
+		case *OneofUnit:
 			if err := p.encodeOneof(w, msg, u, strategy); err != nil {
 				return err
 			}
@@ -23,10 +23,10 @@ func (p *Packer) encodeMessage(w *bitWriter, msg protoreflect.Message, schema *m
 	return nil
 }
 
-func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFieldUnit, strategy OverflowStrategy) error {
-	fd := u.fd
+func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *ScalarFieldUnit, strategy OverflowStrategy) error {
+	fd := u.Fd
 
-	if u.isOptional {
+	if u.IsOptional {
 		if msg.Has(fd) {
 			w.writeBits(1, 1)
 		} else {
@@ -35,11 +35,11 @@ func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFi
 		}
 	}
 
-	if u.isTimestamp {
+	if u.IsTimestamp {
 		return p.encodeTimestamp(w, msg, u, strategy)
 	}
 
-	if u.isMessage {
+	if u.IsMessage {
 		if msg.Has(fd) {
 			w.writeBits(1, 1)
 			nested := msg.Get(fd).Message()
@@ -56,12 +56,12 @@ func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFi
 	if fd.IsList() {
 		list := msg.Get(fd).List()
 		n := list.Len()
-		maxCount := uint64((uint64(1) << u.countBits) - 1)
+		maxCount := uint64((uint64(1) << u.CountBits) - 1)
 		if uint64(n) > maxCount {
 			eff := effectiveStrategy(fd, strategy)
 			switch eff {
 			case OverflowError:
-				return &PackError{Field: string(fd.Name()), Reason: fmt.Sprintf("list length %d overflows count_bits %d", n, u.countBits)}
+				return &PackError{Field: string(fd.Name()), Reason: fmt.Sprintf("list length %d overflows count_bits %d", n, u.CountBits)}
 			case OverflowModulo:
 				n = int(uint64(n) & maxCount)
 			case OverflowClamp, OverflowCropRight:
@@ -69,7 +69,7 @@ func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFi
 			case OverflowCropLeft:
 				// keep last maxCount elements
 				start := n - int(maxCount)
-				w.writeBits(maxCount, int(u.countBits))
+				w.writeBits(maxCount, int(u.CountBits))
 				for i := start; i < list.Len(); i++ {
 					if err := p.encodeValue(w, list.Get(i), u, strategy); err != nil {
 						return err
@@ -78,7 +78,7 @@ func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFi
 				return nil
 			}
 		}
-		w.writeBits(uint64(n), int(u.countBits))
+		w.writeBits(uint64(n), int(u.CountBits))
 		for i := 0; i < n; i++ {
 			if err := p.encodeValue(w, list.Get(i), u, strategy); err != nil {
 				return err
@@ -90,18 +90,18 @@ func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFi
 	if fd.IsMap() {
 		m := msg.Get(fd).Map()
 		mapLen := m.Len()
-		maxCount := uint64((uint64(1) << u.countBits) - 1)
+		maxCount := uint64((uint64(1) << u.CountBits) - 1)
 		if uint64(mapLen) > maxCount {
 			eff := effectiveStrategy(fd, strategy)
 			switch eff {
 			case OverflowError:
-				return &PackError{Field: string(fd.Name()), Reason: fmt.Sprintf("map length %d overflows count_bits %d", mapLen, u.countBits)}
+				return &PackError{Field: string(fd.Name()), Reason: fmt.Sprintf("map length %d overflows count_bits %d", mapLen, u.CountBits)}
 			default:
 				// For maps, clamp: write only the first maxCount entries
 				mapLen = int(maxCount)
 			}
 		}
-		w.writeBits(uint64(mapLen), int(u.countBits))
+		w.writeBits(uint64(mapLen), int(u.CountBits))
 		written := 0
 		var encErr error
 		m.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
@@ -125,8 +125,8 @@ func (p *Packer) encodeField(w *bitWriter, msg protoreflect.Message, u *scalarFi
 	return p.encodeValue(w, msg.Get(fd), u, strategy)
 }
 
-func (p *Packer) encodeTimestamp(w *bitWriter, msg protoreflect.Message, u *scalarFieldUnit, strategy OverflowStrategy) error {
-	fd := u.fd
+func (p *Packer) encodeTimestamp(w *bitWriter, msg protoreflect.Message, u *ScalarFieldUnit, strategy OverflowStrategy) error {
+	fd := u.Fd
 	fieldName := string(fd.Name())
 
 	// Presence bit (message-kind fields always emit a presence flag).
@@ -238,17 +238,17 @@ func (p *Packer) encodeTimestamp(w *bitWriter, msg protoreflect.Message, u *scal
 	return nil
 }
 
-func (p *Packer) encodeOneof(w *bitWriter, msg protoreflect.Message, u *oneofUnit, strategy OverflowStrategy) error {
-	whichFd := msg.WhichOneof(u.od)
+func (p *Packer) encodeOneof(w *bitWriter, msg protoreflect.Message, u *OneofUnit, strategy OverflowStrategy) error {
+	whichFd := msg.WhichOneof(u.Od)
 	if whichFd == nil {
-		w.writeBits(0, int(u.selectorBits))
+		w.writeBits(0, int(u.SelectorBits))
 		return nil
 	}
 
 	// Find index (1-based)
 	idx := -1
-	for i, su := range u.fields {
-		if su.fd.Number() == whichFd.Number() {
+	for i, su := range u.Fields {
+		if su.Fd.Number() == whichFd.Number() {
 			idx = i + 1
 			break
 		}
@@ -257,8 +257,8 @@ func (p *Packer) encodeOneof(w *bitWriter, msg protoreflect.Message, u *oneofUni
 		return &PackError{Field: string(whichFd.Name()), Reason: "field not found in oneof"}
 	}
 
-	w.writeBits(uint64(idx), int(u.selectorBits))
-	su := u.fields[idx-1]
+	w.writeBits(uint64(idx), int(u.SelectorBits))
+	su := u.Fields[idx-1]
 
 	// If oneof field is a message, encode without a presence bit (selector serves as presence)
 	if whichFd.Kind() == protoreflect.MessageKind || whichFd.Kind() == protoreflect.GroupKind {
@@ -273,8 +273,8 @@ func (p *Packer) encodeOneof(w *bitWriter, msg protoreflect.Message, u *oneofUni
 	return p.encodeValue(w, msg.Get(whichFd), su, strategy)
 }
 
-func (p *Packer) encodeValue(w *bitWriter, val protoreflect.Value, u *scalarFieldUnit, strategy OverflowStrategy) error {
-	fd := u.fd
+func (p *Packer) encodeValue(w *bitWriter, val protoreflect.Value, u *ScalarFieldUnit, strategy OverflowStrategy) error {
+	fd := u.Fd
 
 	// For map values, use the map value descriptor
 	valueFd := fd
@@ -282,7 +282,7 @@ func (p *Packer) encodeValue(w *bitWriter, val protoreflect.Value, u *scalarFiel
 		valueFd = fd.MapValue()
 	}
 
-	return p.encodeScalar(w, val, valueFd, u.bits, u.lengthBits, strategy)
+	return p.encodeScalar(w, val, valueFd, u.Bits, u.LengthBits, strategy)
 }
 
 func (p *Packer) encodeScalar(w *bitWriter, val protoreflect.Value, fd protoreflect.FieldDescriptor, bitsN uint32, lengthBits uint32, strategy OverflowStrategy) error {
@@ -418,7 +418,7 @@ func (p *Packer) encodeScalar(w *bitWriter, val protoreflect.Value, fd protorefl
 
 	case protoreflect.FloatKind:
 		f := float64(val.Float())
-		fo := getFieldOpts(fd)
+		fo := GetFieldOpts(fd)
 		if fo.GetFixed() != nil || fo.GetUfixed() != nil {
 			fp := fo.GetFixed()
 			if fp == nil {
@@ -487,7 +487,7 @@ func (p *Packer) encodeScalar(w *bitWriter, val protoreflect.Value, fd protorefl
 
 	case protoreflect.DoubleKind:
 		f := val.Float()
-		fo := getFieldOpts(fd)
+		fo := GetFieldOpts(fd)
 		if fo.GetFixed() != nil || fo.GetUfixed() != nil {
 			fp := fo.GetFixed()
 			if fp == nil {
@@ -622,14 +622,14 @@ func (p *Packer) encodeScalar(w *bitWriter, val protoreflect.Value, fd protorefl
 	return nil
 }
 
-func (p *Packer) encodeMapKey(w *bitWriter, key protoreflect.MapKey, u *scalarFieldUnit) error {
-	fd := u.fd
+func (p *Packer) encodeMapKey(w *bitWriter, key protoreflect.MapKey, u *ScalarFieldUnit) error {
+	fd := u.Fd
 	keyFd := fd.MapKey()
 
 	switch keyFd.Kind() {
 	case protoreflect.StringKind:
 		s := []byte(key.String())
-		w.writeBits(uint64(len(s)), int(u.keyLengthBits))
+		w.writeBits(uint64(len(s)), int(u.KeyLengthBits))
 		w.writeRawBytes(s)
 	case protoreflect.BoolKind:
 		if key.Bool() {
@@ -639,21 +639,21 @@ func (p *Packer) encodeMapKey(w *bitWriter, key protoreflect.MapKey, u *scalarFi
 		}
 	case protoreflect.Sint32Kind:
 		v := int32(key.Int())
-		w.writeBits(uint64(zigzag32(v)), int(u.keyBits))
+		w.writeBits(uint64(zigzag32(v)), int(u.KeyBits))
 	case protoreflect.Sint64Kind:
 		v := key.Int()
-		w.writeBits(zigzag64(v), int(u.keyBits))
+		w.writeBits(zigzag64(v), int(u.KeyBits))
 	case protoreflect.Int32Kind, protoreflect.Sfixed32Kind,
 		protoreflect.Int64Kind, protoreflect.Sfixed64Kind:
 		v := key.Int()
 		mask := uint64(math.MaxUint64)
-		if u.keyBits < 64 {
-			mask = (1 << u.keyBits) - 1
+		if u.KeyBits < 64 {
+			mask = (1 << u.KeyBits) - 1
 		}
-		w.writeBits(uint64(v)&mask, int(u.keyBits))
+		w.writeBits(uint64(v)&mask, int(u.KeyBits))
 	default:
 		v := key.Uint()
-		w.writeBits(v, int(u.keyBits))
+		w.writeBits(v, int(u.KeyBits))
 	}
 	return nil
 }
@@ -678,8 +678,8 @@ func float32ToFloat16(f float32) uint16 {
 		return sign<<15 | 0x7C00 // Inf
 	}
 
-	exp -= 127  // remove float32 bias
-	exp += 15   // add float16 bias
+	exp -= 127 // remove float32 bias
+	exp += 15  // add float16 bias
 	if exp >= 31 {
 		return sign<<15 | 0x7C00 // overflow → Inf
 	}

@@ -9,5 +9,9 @@ plugins:
     out: gen/go
     opt:
       - paths=source_relative
+  - local: protoc-gen-bitpacker-c
+    out: gen/c
+    opt:
+      - paths=source_relative
 inputs:
   - directory: proto
