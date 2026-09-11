@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -48,6 +49,9 @@ func writeHeader(g *protogen.GeneratedFile, f *protogen.File) error {
 	p("#include <stdbool.h>")
 	p("#include <string.h>")
 	p("#include \"bitpacker_runtime.h\"")
+	for _, h := range importedHeaders(f) {
+		p("#include \"", h, "\"")
+	}
 	p()
 
 	if len(f.Enums) > 0 {
@@ -89,12 +93,60 @@ func writeHeader(g *protogen.GeneratedFile, f *protogen.File) error {
 		p("/* ── Public API (returns bytes consumed/written, or -1 on error) ──────── */")
 		p()
 		for _, msg := range f.Messages {
-			emitFuncDecls(g, msg)
+			emitFuncDecls(g, msg, false)
 		}
+		p()
+		p("/* ── Internal API (shared bit cursor; called by generated code of importing files) ── */")
+		p()
+		for _, msg := range f.Messages {
+			emitFuncDecls(g, msg, true)
+		}
+		p()
 	}
 
 	p("#endif /* ", guard, " */")
 	return nil
+}
+
+// importedHeaders returns the headers of other proto files whose enums or messages are
+// stored by the generated structs of f, sorted for stable output. Types that occupy no
+// storage (Timestamp, empty messages) and map fields (unsupported) need no include.
+func importedHeaders(f *protogen.File) []string {
+	seen := map[string]bool{}
+	var walk func(msgs []*protogen.Message)
+	walk = func(msgs []*protogen.Message) {
+		for _, msg := range msgs {
+			walk(msg.Messages)
+			if units, _ := collectUnits(msg); units == nil {
+				continue
+			}
+			for _, field := range msg.Fields {
+				fd := field.Desc
+				var dep protoreflect.FileDescriptor
+				switch {
+				case fd.IsMap():
+					continue
+				case fd.Kind() == protoreflect.EnumKind:
+					dep = fd.Enum().ParentFile()
+				case fd.Kind() == protoreflect.MessageKind && !isTimestampMsg(fd.Message()) && !isEmptyMsg(fd.Message()):
+					dep = fd.Message().ParentFile()
+				default:
+					continue
+				}
+				if dep.Path() != f.Desc.Path() {
+					seen[headerPath(dep)] = true
+				}
+			}
+		}
+	}
+	walk(f.Messages)
+
+	headers := make([]string, 0, len(seen))
+	for h := range seen {
+		headers = append(headers, h)
+	}
+	sort.Strings(headers)
+	return headers
 }
 
 func emitForwardDecls(g *protogen.GeneratedFile, msg *protogen.Message) {
@@ -152,12 +204,21 @@ func writeStructsInOrder(g *protogen.GeneratedFile, msg *protogen.Message, visit
 	if msg.Desc.IsMapEntry() || visited[msg.Desc.FullName()] {
 		return nil
 	}
+	visited[msg.Desc.FullName()] = true
 	for _, nested := range msg.Messages {
 		if err := writeStructsInOrder(g, nested, visited); err != nil {
 			return err
 		}
 	}
-	visited[msg.Desc.FullName()] = true
+	// Message fields are stored by value, so same-file field types must be complete first.
+	for _, field := range msg.Fields {
+		if field.Message == nil || field.Desc.IsMap() || field.Message.Desc.ParentFile() != msg.Desc.ParentFile() {
+			continue
+		}
+		if err := writeStructsInOrder(g, field.Message, visited); err != nil {
+			return err
+		}
+	}
 	return writeStructDef(g, msg)
 }
 
@@ -230,12 +291,14 @@ func writeStructField(g *protogen.GeneratedFile, field *protogen.Field) error {
 	}
 
 	switch {
-	case fd.Kind() == protoreflect.MessageKind && fd.Message().FullName() == "google.protobuf.Timestamp":
+	case fd.Kind() == protoreflect.MessageKind && isTimestampMsg(fd.Message()):
 		g.P("    bool        has_", name, ";")
 		g.P("    int64_t     ", name, ";")
 	case fd.Kind() == protoreflect.MessageKind:
 		g.P("    bool        has_", name, ";")
-		g.P("    ", cMsgTypeName(fd.Message()), " ", name, ";")
+		if !isEmptyMsg(fd.Message()) {
+			g.P("    ", cMsgTypeName(fd.Message()), " ", name, ";")
+		}
 	case fd.ContainingOneof() != nil && fd.ContainingOneof().IsSynthetic():
 		// proto3 optional scalar
 		g.P("    bool        has_", name, ";")
@@ -273,9 +336,10 @@ func writeRepeatedField(g *protogen.GeneratedFile, fd protoreflect.FieldDescript
 
 	switch fd.Kind() {
 	case protoreflect.MessageKind:
-		if fd.Message().FullName() == "google.protobuf.Timestamp" {
+		switch {
+		case isTimestampMsg(fd.Message()):
 			g.P("    int64_t     ", name, "[", max, "];")
-		} else {
+		case !isEmptyMsg(fd.Message()):
 			g.P("    ", cMsgTypeName(fd.Message()), " ", name, "[", max, "];")
 		}
 	case protoreflect.StringKind:
@@ -300,47 +364,64 @@ func writeOneofUnion(g *protogen.GeneratedFile, oneof *protogen.Oneof, msg *prot
 	oneofName := string(oneof.Desc.Name())
 	typeName := cOneofWhichTypeName(msgName, oneofName)
 
-	g.P("    ", typeName, " which_", oneofName, ";")
-	g.P("    union {")
+	var members []string
 	for _, field := range oneof.Fields {
 		fd := field.Desc
 		fo := bpFieldOpts(fd)
 		name := string(fd.Name())
 		switch fd.Kind() {
 		case protoreflect.MessageKind:
-			if fd.Message().FullName() == "google.protobuf.Timestamp" {
-				g.P("        int64_t     ", name, ";")
-			} else {
-				g.P("        ", cMsgTypeName(fd.Message()), " ", name, ";")
+			switch {
+			case isTimestampMsg(fd.Message()):
+				members = append(members, fmt.Sprint("int64_t     ", name, ";"))
+			case !isEmptyMsg(fd.Message()):
+				members = append(members, fmt.Sprint(cMsgTypeName(fd.Message()), " ", name, ";"))
 			}
 		case protoreflect.StringKind:
 			max := maxArraySize(fo.lengthBits)
-			g.P("        struct { char data[", max+1, "]; uint16_t len; } ", name, ";")
+			members = append(members, fmt.Sprint("struct { char data[", max+1, "]; uint16_t len; } ", name, ";"))
 		case protoreflect.BytesKind:
 			max := maxArraySize(fo.lengthBits)
-			g.P("        struct { uint8_t data[", max, "]; uint16_t len; } ", name, ";")
+			members = append(members, fmt.Sprint("struct { uint8_t data[", max, "]; uint16_t len; } ", name, ";"))
 		case protoreflect.EnumKind:
-			g.P("        ", cEnumTypeName(fd.Enum()), " ", name, ";")
+			members = append(members, fmt.Sprint(cEnumTypeName(fd.Enum()), " ", name, ";"))
 		default:
-			g.P("        ", cScalarType(fd.Kind()), " ", name, ";")
+			members = append(members, fmt.Sprint(cScalarType(fd.Kind()), " ", name, ";"))
 		}
+	}
+
+	g.P("    ", typeName, " which_", oneofName, ";")
+	// C99 forbids empty unions; a oneof of only empty messages is just its tag.
+	if len(members) == 0 {
+		return nil
+	}
+	g.P("    union {")
+	for _, m := range members {
+		g.P("        ", m)
 	}
 	g.P("    } ", oneofName, ";")
 	return nil
 }
 
-func emitFuncDecls(g *protogen.GeneratedFile, msg *protogen.Message) {
+// emitFuncDecls declares the public buffer API, or with internal set, the _r/_w functions
+// that take a shared bit cursor so nested messages can be packed without byte alignment.
+func emitFuncDecls(g *protogen.GeneratedFile, msg *protogen.Message, internal bool) {
 	if msg.Desc.IsMapEntry() {
 		return
 	}
 	units, _ := collectUnits(msg)
 	if units != nil && msgHasNonMapFields(msg) {
 		name := cMsgTypeName(msg.Desc)
-		g.P("int bp_encode_", name, "(const ", name, " *msg, uint8_t *buf, uint32_t buf_size);")
-		g.P("int bp_decode_", name, "(", name, " *msg, const uint8_t *buf, uint32_t buf_len);")
+		if internal {
+			g.P("int bp_encode_", name, "_w(const ", name, " *msg, bp_writer_t *w);")
+			g.P("int bp_decode_", name, "_r(", name, " *msg, bp_reader_t *r);")
+		} else {
+			g.P("int bp_encode_", name, "(const ", name, " *msg, uint8_t *buf, uint32_t buf_size);")
+			g.P("int bp_decode_", name, "(", name, " *msg, const uint8_t *buf, uint32_t buf_len);")
+		}
 	}
 	for _, nested := range msg.Messages {
-		emitFuncDecls(g, nested)
+		emitFuncDecls(g, nested, internal)
 	}
 }
 
@@ -355,19 +436,7 @@ func writeSource(g *protogen.GeneratedFile, f *protogen.File, hInclude string) e
 	var msgs []*protogen.Message
 	collectBitpackerMsgs(f.Messages, &msgs)
 
-	if len(msgs) == 0 {
-		return nil
-	}
-
-	// Emit forward declarations for all internal _r/_w functions
-	for _, msg := range msgs {
-		name := cMsgTypeName(msg.Desc)
-		g.P("static int bp_decode_", name, "_r(", name, " *msg, bp_reader_t *r);")
-		g.P("static int bp_encode_", name, "_w(const ", name, " *msg, bp_writer_t *w);")
-	}
-	g.P()
-
-	// Emit implementations
+	// Internal _r/_w functions are declared in the header, so definition order is free.
 	for _, msg := range msgs {
 		if err := writeMsgFunctions(g, msg); err != nil {
 			return err
@@ -410,7 +479,7 @@ func writeMsgFunctions(g *protogen.GeneratedFile, msg *protogen.Message) error {
 	name := cMsgTypeName(msg.Desc)
 
 	// Internal decode function (takes bp_reader_t*)
-	g.P("static int bp_decode_", name, "_r(", name, " *msg, bp_reader_t *r) {")
+	g.P("int bp_decode_", name, "_r(", name, " *msg, bp_reader_t *r) {")
 	g.P("    uint64_t _v;")
 	for _, u := range units {
 		if err := emitDecodeUnit(g, u, msg, "r"); err != nil {
@@ -430,7 +499,7 @@ func writeMsgFunctions(g *protogen.GeneratedFile, msg *protogen.Message) error {
 	g.P()
 
 	// Internal encode function (takes bp_writer_t*)
-	g.P("static int bp_encode_", name, "_w(const ", name, " *msg, bp_writer_t *w) {")
+	g.P("int bp_encode_", name, "_w(const ", name, " *msg, bp_writer_t *w) {")
 	g.P("    uint64_t _v; (void)_v;")
 	for _, u := range units {
 		if err := emitEncodeUnit(g, u, msg, "w"); err != nil {
@@ -445,7 +514,7 @@ func writeMsgFunctions(g *protogen.GeneratedFile, msg *protogen.Message) error {
 	g.P("int bp_encode_", name, "(const ", name, " *msg, uint8_t *buf, uint32_t buf_size) {")
 	g.P("    bp_writer_t w = {buf, 0, buf_size * 8u};")
 	g.P("    if (bp_encode_", name, "_w(msg, &w) != 0) return -1;")
-	g.P("    return (int)bp_writer_bytes(&w);")
+	g.P("    return (int)bp_writer_finish(&w);")
 	g.P("}")
 	g.P()
 
@@ -507,9 +576,11 @@ func emitDecodeScalar(g *protogen.GeneratedFile, u scalarUnit, msg *protogen.Mes
 		g.P("    /* message ", name, " */")
 		g.P("    if (bp_read_bits(", rv, ", 1, &_v)) return -1;")
 		g.P("    msg->has_", name, " = (bool)_v;")
-		g.P("    if (msg->has_", name, ") {")
-		g.P("        if (bp_decode_", nestedName, "_r(&msg->", name, ", ", rv, ") != 0) return -1;")
-		g.P("    }")
+		if !isEmptyMsg(fd.Message()) {
+			g.P("    if (msg->has_", name, ") {")
+			g.P("        if (bp_decode_", nestedName, "_r(&msg->", name, ", ", rv, ") != 0) return -1;")
+			g.P("    }")
+		}
 		return nil
 	}
 
@@ -528,8 +599,10 @@ func emitDecodeList(g *protogen.GeneratedFile, fd protoreflect.FieldDescriptor, 
 
 	switch fd.Kind() {
 	case protoreflect.MessageKind:
-		nestedName := cMsgTypeName(fd.Message())
-		g.P("        if (bp_decode_", nestedName, "_r(&msg->", name, "[_i], ", rv, ") != 0) return -1;")
+		if !isEmptyMsg(fd.Message()) {
+			nestedName := cMsgTypeName(fd.Message())
+			g.P("        if (bp_decode_", nestedName, "_r(&msg->", name, "[_i], ", rv, ") != 0) return -1;")
+		}
 	case protoreflect.StringKind:
 		max := maxArraySize(fo.lengthBits)
 		g.P("        if (bp_read_bits(", rv, ", ", fo.lengthBits, ", &_v)) return -1;")
@@ -674,8 +747,10 @@ func emitDecodeOneof(g *protogen.GeneratedFile, u oneofUnit, msg *protogen.Messa
 		g.P("    case ", enumerant, ": /* selector=", i+1, " */")
 		switch fd.Kind() {
 		case protoreflect.MessageKind:
-			nestedName := cMsgTypeName(fd.Message())
-			g.P("        if (bp_decode_", nestedName, "_r(&msg->", oneofName, ".", fname, ", ", rv, ") != 0) return -1;")
+			if !isEmptyMsg(fd.Message()) {
+				nestedName := cMsgTypeName(fd.Message())
+				g.P("        if (bp_decode_", nestedName, "_r(&msg->", oneofName, ".", fname, ", ", rv, ") != 0) return -1;")
+			}
 		case protoreflect.StringKind:
 			g.P("        if (bp_read_bits(", rv, ", ", fo.lengthBits, ", &_v)) return -1;")
 			g.P("        msg->", oneofName, ".", fname, ".len = (uint16_t)_v;")
@@ -748,9 +823,11 @@ func emitEncodeScalar(g *protogen.GeneratedFile, u scalarUnit, msg *protogen.Mes
 		nestedName := cMsgTypeName(fd.Message())
 		g.P("    /* message ", name, " */")
 		g.P("    if (bp_write_bits(", wv, ", msg->has_", name, " ? 1u : 0u, 1)) return -1;")
-		g.P("    if (msg->has_", name, ") {")
-		g.P("        if (bp_encode_", nestedName, "_w(&msg->", name, ", ", wv, ") != 0) return -1;")
-		g.P("    }")
+		if !isEmptyMsg(fd.Message()) {
+			g.P("    if (msg->has_", name, ") {")
+			g.P("        if (bp_encode_", nestedName, "_w(&msg->", name, ", ", wv, ") != 0) return -1;")
+			g.P("    }")
+		}
 		return nil
 	}
 
@@ -768,8 +845,10 @@ func emitEncodeList(g *protogen.GeneratedFile, fd protoreflect.FieldDescriptor, 
 
 	switch fd.Kind() {
 	case protoreflect.MessageKind:
-		nestedName := cMsgTypeName(fd.Message())
-		g.P("        if (bp_encode_", nestedName, "_w(&msg->", name, "[_i], ", wv, ") != 0) return -1;")
+		if !isEmptyMsg(fd.Message()) {
+			nestedName := cMsgTypeName(fd.Message())
+			g.P("        if (bp_encode_", nestedName, "_w(&msg->", name, "[_i], ", wv, ") != 0) return -1;")
+		}
 	case protoreflect.StringKind:
 		g.P("        if (bp_write_bits(", wv, ", (uint64_t)msg->", name, "_lens[_i], ", fo.lengthBits, ")) return -1;")
 		g.P("        if (bp_write_raw_bytes(", wv, ", (const uint8_t*)msg->", name, "[_i], msg->", name, "_lens[_i])) return -1;")
@@ -884,8 +963,10 @@ func emitEncodeOneof(g *protogen.GeneratedFile, u oneofUnit, msg *protogen.Messa
 		g.P("    case ", enumerant, ": /* selector=", i+1, " */")
 		switch fd.Kind() {
 		case protoreflect.MessageKind:
-			nestedName := cMsgTypeName(fd.Message())
-			g.P("        if (bp_encode_", nestedName, "_w(&msg->", oneofName, ".", fname, ", ", wv, ") != 0) return -1;")
+			if !isEmptyMsg(fd.Message()) {
+				nestedName := cMsgTypeName(fd.Message())
+				g.P("        if (bp_encode_", nestedName, "_w(&msg->", oneofName, ".", fname, ", ", wv, ") != 0) return -1;")
+			}
 		case protoreflect.StringKind:
 			g.P("        if (bp_write_bits(", wv, ", (uint64_t)msg->", oneofName, ".", fname, ".len, ", fo.lengthBits, ")) return -1;")
 			g.P("        if (bp_write_raw_bytes(", wv, ", (const uint8_t*)msg->", oneofName, ".", fname, ".data, msg->", oneofName, ".", fname, ".len)) return -1;")
@@ -904,4 +985,3 @@ func emitEncodeOneof(g *protogen.GeneratedFile, u oneofUnit, msg *protogen.Messa
 	g.P("    }")
 	return nil
 }
-

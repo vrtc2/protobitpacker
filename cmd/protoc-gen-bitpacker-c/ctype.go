@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -38,6 +39,24 @@ func cEnumTypeName(ed protoreflect.EnumDescriptor) string {
 // e.g. "bitpacker.v1.example.SensorReading" → "SensorReading"
 func cMsgTypeName(md protoreflect.MessageDescriptor) string {
 	return string(md.Name())
+}
+
+// isEmptyMsg reports whether md has no fields (e.g. google.protobuf.Empty).
+// Such messages occupy zero bits on the wire, so the C side stores nothing for
+// them: no struct is generated and referencing fields keep only presence/count/tag.
+func isEmptyMsg(md protoreflect.MessageDescriptor) bool {
+	return md.Fields().Len() == 0
+}
+
+// isTimestampMsg reports whether md is google.protobuf.Timestamp, stored as a raw int64_t.
+func isTimestampMsg(md protoreflect.MessageDescriptor) bool {
+	return md.FullName() == "google.protobuf.Timestamp"
+}
+
+// headerPath returns the output-root-relative path of the header generated for a proto file.
+// e.g. "acme/common/v1/types.proto" → "acme/common/v1/types_bitpacker.h"
+func headerPath(fd protoreflect.FileDescriptor) string {
+	return strings.TrimSuffix(fd.Path(), ".proto") + "_bitpacker.h"
 }
 
 // cOneofWhichTypeName returns the C enum typedef name for the oneof discriminant.

@@ -33,4 +33,8 @@ typedef enum {
 
 /* ── Public API (returns bytes consumed/written, or -1 on error) ──────── */
 
+
+/* ── Internal API (shared bit cursor; called by generated code of importing files) ── */
+
+
 #endif /* BITPACKER_V1_OPTIONS_BITPACKER_H */
