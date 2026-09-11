@@ -103,4 +103,18 @@ int bp_encode_TimestampedEvent(const TimestampedEvent *msg, uint8_t *buf, uint32
 int bp_decode_TimestampedEvent(TimestampedEvent *msg, const uint8_t *buf, uint32_t buf_len);
 int bp_encode_FloatSample(const FloatSample *msg, uint8_t *buf, uint32_t buf_size);
 int bp_decode_FloatSample(FloatSample *msg, const uint8_t *buf, uint32_t buf_len);
+
+/* ── Internal API (shared bit cursor; called by generated code of importing files) ── */
+
+int bp_encode_SensorReading_w(const SensorReading *msg, bp_writer_t *w);
+int bp_decode_SensorReading_r(SensorReading *msg, bp_reader_t *r);
+int bp_encode_Packet_w(const Packet *msg, bp_writer_t *w);
+int bp_decode_Packet_r(Packet *msg, bp_reader_t *r);
+int bp_encode_Burst_w(const Burst *msg, bp_writer_t *w);
+int bp_decode_Burst_r(Burst *msg, bp_reader_t *r);
+int bp_encode_TimestampedEvent_w(const TimestampedEvent *msg, bp_writer_t *w);
+int bp_decode_TimestampedEvent_r(TimestampedEvent *msg, bp_reader_t *r);
+int bp_encode_FloatSample_w(const FloatSample *msg, bp_writer_t *w);
+int bp_decode_FloatSample_r(FloatSample *msg, bp_reader_t *r);
+
 #endif /* BITPACKER_V1_EXAMPLE_EXAMPLE_BITPACKER_H */

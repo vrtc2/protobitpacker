@@ -197,3 +197,11 @@ static inline uint32_t bp_writer_bytes(const bp_writer_t *w) {
     return (w->bit_pos + 7u) / 8u;
 }
 
+/* Zero the padding bits of the last partial byte (the buffer may hold stale data)
+ * and return the number of bytes written. */
+static inline uint32_t bp_writer_finish(bp_writer_t *w) {
+    uint32_t used = w->bit_pos & 7u;
+    if (used) w->buf[w->bit_pos >> 3] &= (uint8_t)(0xFFu << (8u - used));
+    return bp_writer_bytes(w);
+}
+
