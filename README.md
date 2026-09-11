@@ -456,10 +456,20 @@ option, the repo ships a `protoc` plugin — **`protoc-gen-bitpacker-c`** — th
 **C99** encode/decode code from the same annotated `.proto` files. The output is wire-compatible
 with the Go library, byte-for-byte.
 
-### Build the plugin and generate
+### Install the plugin and generate
+
+Install it with `go install` (the binary lands in `$(go env GOPATH)/bin`, which must be on `PATH`):
 
 ```bash
-# Build the plugin (the binary is git-ignored — it is a build artifact)
+go install github.com/vrtc2/protobitpacker/cmd/protoc-gen-bitpacker-c@latest
+```
+
+`@latest` resolves to the newest release tag; use `@main` for unreleased changes, or pin a
+version (`@vX.Y.Z`) so generated code stays reproducible across machines and CI.
+
+Alternatively, build it from a checkout (the binary is git-ignored — it is a build artifact):
+
+```bash
 go build -o protoc-gen-bitpacker-c ./cmd/protoc-gen-bitpacker-c
 ```
 
@@ -481,7 +491,8 @@ inputs:
 ```
 
 ```bash
-PATH="$PWD:$PATH" buf generate
+buf generate                    # plugin installed via go install
+PATH="$PWD:$PATH" buf generate  # plugin built into the working directory
 ```
 
 ### What gets generated
@@ -491,8 +502,13 @@ For each `foo.proto` that has bitpacker-annotated messages:
 | File | Contents |
 |---|---|
 | `bitpacker_runtime.h` | Shared header-only runtime, emitted once. Every function is `static inline` (nothing to link, zero call overhead). Depends only on `<stdint.h>`, `<stdbool.h>`, `<string.h>`, `<math.h>`. |
-| `foo_bitpacker.h` | One `enum` per proto enum, a fixed-size `struct` per message, oneof discriminant enums, and the public prototypes. |
+| `foo_bitpacker.h` | One `enum` per proto enum, a fixed-size `struct` per message, oneof discriminant enums, and the prototypes. Includes the headers of imported `.proto` files whose types it uses. |
 | `foo_bitpacker.c` | The `bp_encode_<Msg>` / `bp_decode_<Msg>` implementations. |
+
+Schemas split across several `.proto` files (and packages) work: an imported file's header is
+included by its output-root-relative path (e.g. `#include "acme/common/v1/types_bitpacker.h"`),
+so compile with `-I` pointing at the output root and link the `.c` files of every imported
+proto. The plugin does not need `go_package` options or buf managed mode.
 
 Public API per message:
 
@@ -503,6 +519,11 @@ int bp_encode_<Msg>(const <Msg> *msg, uint8_t *buf, uint32_t buf_size);
 /* Returns the number of bytes consumed, or -1 on a truncated/invalid stream. */
 int bp_decode_<Msg>(<Msg> *msg, const uint8_t *buf, uint32_t buf_len);
 ```
+
+The header also declares `bp_encode_<Msg>_w` / `bp_decode_<Msg>_r`, which operate on a shared
+bit cursor. They exist so generated code in importing files can nest messages without byte
+alignment; application code should use the buffer API above. Unused padding bits in the last
+output byte are always zeroed, so the buffer does not need to be cleared beforehand.
 
 ### Struct layout
 
@@ -515,6 +536,7 @@ allocation is ever needed:
 | `bytes b [length_bits = 8]` | `uint8_t b[255]; uint16_t b_len;` |
 | `repeated T x [count_bits = 8]` | `T x[255]; uint16_t x_count;` |
 | `optional` / message / `Timestamp` | a `bool has_<field>;` companion flag + the value |
+| `google.protobuf.Empty` (any field-less message) | no storage: only `has_<field>` / `<field>_count` / the oneof tag (it is 0 bits on the wire) |
 | `oneof` | a `<Msg>_which_<name>_t` tag plus a `union` of the members |
 
 > **Memory note:** array sizes follow the *theoretical maximum* of the bit width
