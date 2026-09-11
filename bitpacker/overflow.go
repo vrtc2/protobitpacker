@@ -43,7 +43,7 @@ func protoOverflowToGo(s bitpackerv1.OverflowStrategy) OverflowStrategy {
 
 // effectiveStrategy returns the per-field strategy if set, otherwise the pack-level default.
 func effectiveStrategy(fd protoreflect.FieldDescriptor, def OverflowStrategy) OverflowStrategy {
-	fo := getFieldOpts(fd)
+	fo := GetFieldOpts(fd)
 	if fo.GetOverflow() != bitpackerv1.OverflowStrategy_OVERFLOW_STRATEGY_UNSPECIFIED {
 		return protoOverflowToGo(fo.GetOverflow())
 	}

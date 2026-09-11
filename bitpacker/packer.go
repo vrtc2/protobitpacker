@@ -17,13 +17,13 @@ import (
 // It caches descriptor analysis per message type and is safe for concurrent use.
 type Packer struct {
 	mu    sync.RWMutex
-	cache map[protoreflect.FullName]*messageSchema
+	cache map[protoreflect.FullName]*MessageSchema
 }
 
 // NewPacker creates a new Packer with an empty cache.
 func NewPacker() *Packer {
 	return &Packer{
-		cache: make(map[protoreflect.FullName]*messageSchema),
+		cache: make(map[protoreflect.FullName]*MessageSchema),
 	}
 }
 
@@ -64,30 +64,30 @@ func (p *Packer) Validate(desc protoreflect.MessageDescriptor) error {
 }
 
 // getOrAnalyze returns a cached messageSchema, analysing on first access.
-func (p *Packer) getOrAnalyze(md protoreflect.MessageDescriptor) (*messageSchema, error) {
+func (p *Packer) getOrAnalyze(md protoreflect.MessageDescriptor) (*MessageSchema, error) {
 	name := md.FullName()
 
 	p.mu.RLock()
-	schema, ok := p.cache[name]
-	p.mu.RUnlock()
-	if ok {
-		return schema, nil
+	if s, ok := p.cache[name]; ok {
+		p.mu.RUnlock()
+		return s, nil
 	}
+	p.mu.RUnlock()
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	// Double-check after acquiring write lock
-	if schema, ok = p.cache[name]; ok {
-		return schema, nil
+	if s, ok := p.cache[name]; ok {
+		return s, nil
 	}
 
-	schema, err := analyzeMessage(md)
+	s, err := AnalyzeMessage(md)
 	if err != nil {
 		return nil, err
 	}
-	p.cache[name] = schema
-	return schema, nil
+	p.cache[name] = s
+	return s, nil
 }
 
 // Default is a package-level shared Packer for convenience.

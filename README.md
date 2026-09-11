@@ -1,6 +1,6 @@
 # protobitpacker
 
-**Bit-level binary packing for Protocol Buffers — Go library.**
+**Bit-level binary packing for Protocol Buffers — Go library + C bindings for embedded targets.**
 
 Annotate your `.proto` schema with field-width hints and achieve the smallest possible
 binary representation for transmission over constrained channels — LoRa, UART, CAN bus,
@@ -84,8 +84,8 @@ msg := &myappv1.EngineData{
     CheckEngine:   false,
 }
 
-// Serialise to bytes
-data, err := bitpacker.Pack(msg)
+// Serialise to bytes (the second argument is the overflow strategy)
+data, err := bitpacker.Pack(msg, bitpacker.OverflowError)
 
 // Deserialise back
 out := &myappv1.EngineData{}
@@ -98,7 +98,8 @@ err = bitpacker.Unpack(data, out)
 
 ```go
 // Package-level functions use a shared default Packer.
-func Pack(msg proto.Message) ([]byte, error)
+// strategy selects how out-of-range values are handled (see Overflow Handling).
+func Pack(msg proto.Message, strategy OverflowStrategy) ([]byte, error)
 func Unpack(data []byte, msg proto.Message) error
 
 // Packer is the reusable handle. It caches descriptor analysis per
@@ -106,7 +107,7 @@ func Unpack(data []byte, msg proto.Message) error
 type Packer struct{ /* ... */ }
 
 func NewPacker() *Packer
-func (p *Packer) Pack(msg proto.Message) ([]byte, error)
+func (p *Packer) Pack(msg proto.Message, strategy OverflowStrategy) ([]byte, error)
 func (p *Packer) Unpack(data []byte, msg proto.Message) error
 
 // Validate checks all fields in the descriptor for valid annotations,
@@ -448,6 +449,116 @@ message Config {
 
 ---
 
+## C Bindings (embedded targets)
+
+For microcontrollers (ESP32, STM32, …) where running the Go reflection library is not an
+option, the repo ships a `protoc` plugin — **`protoc-gen-bitpacker-c`** — that generates pure
+**C99** encode/decode code from the same annotated `.proto` files. The output is wire-compatible
+with the Go library, byte-for-byte.
+
+### Build the plugin and generate
+
+```bash
+# Build the plugin (the binary is git-ignored — it is a build artifact)
+go build -o protoc-gen-bitpacker-c ./cmd/protoc-gen-bitpacker-c
+```
+
+Add it to `buf.gen.yaml` next to the Go plugin:
+
+```yaml
+version: v2
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen/go
+    opt:
+      - paths=source_relative
+  - local: protoc-gen-bitpacker-c   # resolved from PATH or the working directory
+    out: gen/c
+    opt:
+      - paths=source_relative
+inputs:
+  - directory: proto
+```
+
+```bash
+PATH="$PWD:$PATH" buf generate
+```
+
+### What gets generated
+
+For each `foo.proto` that has bitpacker-annotated messages:
+
+| File | Contents |
+|---|---|
+| `bitpacker_runtime.h` | Shared header-only runtime, emitted once. Every function is `static inline` (nothing to link, zero call overhead). Depends only on `<stdint.h>`, `<stdbool.h>`, `<string.h>`, `<math.h>`. |
+| `foo_bitpacker.h` | One `enum` per proto enum, a fixed-size `struct` per message, oneof discriminant enums, and the public prototypes. |
+| `foo_bitpacker.c` | The `bp_encode_<Msg>` / `bp_decode_<Msg>` implementations. |
+
+Public API per message:
+
+```c
+/* Returns the number of bytes written, or -1 on buffer overflow. */
+int bp_encode_<Msg>(const <Msg> *msg, uint8_t *buf, uint32_t buf_size);
+
+/* Returns the number of bytes consumed, or -1 on a truncated/invalid stream. */
+int bp_decode_<Msg>(<Msg> *msg, const uint8_t *buf, uint32_t buf_len);
+```
+
+### Struct layout
+
+Variable-length fields map to **fixed-size** storage sized from the annotation, so no heap
+allocation is ever needed:
+
+| Proto | Generated C |
+|---|---|
+| `string s [length_bits = 5]` | `char s[32]; uint16_t s_len;` (`2⁵−1` chars + NUL terminator) |
+| `bytes b [length_bits = 8]` | `uint8_t b[255]; uint16_t b_len;` |
+| `repeated T x [count_bits = 8]` | `T x[255]; uint16_t x_count;` |
+| `optional` / message / `Timestamp` | a `bool has_<field>;` companion flag + the value |
+| `oneof` | a `<Msg>_which_<name>_t` tag plus a `union` of the members |
+
+> **Memory note:** array sizes follow the *theoretical maximum* of the bit width
+> (`2^bits − 1`). A `repeated <Msg> [count_bits = 8]` of a large message becomes a 255-element
+> inline array. Keep `count_bits` / `length_bits` as tight as possible on RAM-constrained
+> targets, and pass these structs by pointer (the generated API already does).
+
+### Usage
+
+```c
+#include "foo_bitpacker.h"
+
+SensorReading r = {0};
+r.sensor_id        = 42;
+r.temperature_deci = -123;          /* zigzag-encoded on the wire */
+r.has_label        = true;
+strcpy(r.label, "north");
+r.label_len = 5;
+
+uint8_t buf[64];
+int n = bp_encode_SensorReading(&r, buf, sizeof buf);
+if (n < 0) { /* buffer too small */ }
+
+SensorReading back = {0};
+if (bp_decode_SensorReading(&back, buf, (uint32_t)n) < 0) { /* malformed stream */ }
+```
+
+The runtime uses `round()` for fixed-point, so link the math library (`-lm`):
+
+```bash
+cc -std=c99 -Igen/c -Igen/c/<package/path> app.c foo_bitpacker.c -lm
+```
+
+### C ↔ Go compatibility
+
+The C output is byte-for-byte identical to the Go library for every supported type, including
+fixed-point `float`/`double` (both round to nearest).
+
+> **Known divergence — `map` fields are not supported in C.** The Go library encodes maps; the
+> C generator **skips them silently**. A message that contains map fields is therefore *not*
+> wire-compatible across Go ↔ C. Avoid maps on any message that crosses the Go/C boundary.
+
+---
+
 ## Overflow Handling
 
 By default, packing a value that exceeds its declared bit width returns a `*PackError`
@@ -516,6 +627,9 @@ pack-level strategy", so you only need to annotate fields that differ from the d
 - **Reduced-precision floats are lossy.** Converting a `double` to `bits = 32` or
   `bits = 16` is irreversible.
 - **Map entry order is unspecified.** Do not rely on ordering of map entries in the stream.
+- **The C bindings do not support `map` fields.** The C generator skips them silently, so
+  messages with maps are not wire-compatible between Go and C. See
+  [C Bindings](#c-bindings-embedded-targets).
 
 ---
 

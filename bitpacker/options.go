@@ -8,9 +8,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-// getFieldOpts returns the (bitpacker.v1.field) extension from a FieldDescriptor.
+// GetFieldOpts returns the (bitpacker.v1.field) extension from a FieldDescriptor.
 // Returns a zero-value FieldOptions (not nil) if the extension is absent.
-func getFieldOpts(fd protoreflect.FieldDescriptor) *bitpackerv1.FieldOptions {
+func GetFieldOpts(fd protoreflect.FieldDescriptor) *bitpackerv1.FieldOptions {
 	opts := fd.Options()
 	if opts == nil {
 		return &bitpackerv1.FieldOptions{}
@@ -26,9 +26,9 @@ func getFieldOpts(fd protoreflect.FieldDescriptor) *bitpackerv1.FieldOptions {
 	return fo
 }
 
-// getOneofOpts returns the (bitpacker.v1.oneof) extension from a OneofDescriptor.
+// GetOneofOpts returns the (bitpacker.v1.oneof) extension from a OneofDescriptor.
 // Returns a zero-value OneofOptions (not nil) if absent.
-func getOneofOpts(od protoreflect.OneofDescriptor) *bitpackerv1.OneofOptions {
+func GetOneofOpts(od protoreflect.OneofDescriptor) *bitpackerv1.OneofOptions {
 	opts := od.Options()
 	if opts == nil {
 		return &bitpackerv1.OneofOptions{}
@@ -44,11 +44,11 @@ func getOneofOpts(od protoreflect.OneofDescriptor) *bitpackerv1.OneofOptions {
 	return oo
 }
 
-// minSelectorBits returns ceil(log2(n+1)) — minimum bits to discriminate n oneof cases
+// MinSelectorBits returns ceil(log2(n+1)) — minimum bits to discriminate n oneof cases
 // plus the "no field set" (0) case.
 //
 //	n=0 → 1, n=1 → 1, n=2 → 2, n=3 → 2, n=4 → 3, …
-func minSelectorBits(n int) uint32 {
+func MinSelectorBits(n int) uint32 {
 	if n <= 1 {
 		return 1
 	}

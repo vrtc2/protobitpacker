@@ -9,7 +9,11 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-var nowSecs = int64(1777451807)
+// nowSecs anchors the rolling-window tests to the real current time, because
+// the rolling decoder reconstructs timestamps relative to time.Now(). Using a
+// hardcoded constant makes the 16-bit (~18 h window) test fail once wall-clock
+// time drifts more than ½ window past it.
+var nowSecs = time.Now().Unix()
 
 func rollingRoundtrip24(t *testing.T, ts *timestamppb.Timestamp) *timestamppb.Timestamp {
 	t.Helper()

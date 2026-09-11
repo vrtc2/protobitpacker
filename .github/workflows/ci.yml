@@ -34,4 +34,12 @@ jobs:
         with:
           go-version: stable
           cache: true
-      - run: buf generate && git diff --exit-code gen/
+      - name: Build protoc-gen-bitpacker-c
+        run: |
+          go build -o "$RUNNER_TEMP/bin/protoc-gen-bitpacker-c" ./cmd/protoc-gen-bitpacker-c
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Check generated code is up to date
+        run: |
+          buf generate
+          git status --porcelain gen/
+          test -z "$(git status --porcelain gen/)"

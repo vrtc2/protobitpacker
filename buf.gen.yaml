@@ -5,8 +5,12 @@ managed:
     - file_option: go_package_prefix
       value: github.com/vrtc2/protobitpacker/gen/go
 plugins:
-  - remote: buf.build/protocolbuffers/go
+  - remote: buf.build/protocolbuffers/go:v1.36.12
     out: gen/go
+    opt:
+      - paths=source_relative
+  - local: protoc-gen-bitpacker-c
+    out: gen/c
     opt:
       - paths=source_relative
 inputs:

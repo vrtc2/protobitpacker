@@ -6,42 +6,43 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-// encodingUnit is either a *scalarFieldUnit or a *oneofUnit.
-type encodingUnit interface{ isEncodingUnit() }
+// EncodingUnit is either a *ScalarFieldUnit or a *OneofUnit.
+// The unexported method prevents external implementations; use type assertions.
+type EncodingUnit interface{ isEncodingUnit() }
 
-// scalarFieldUnit handles regular fields, proto3-optional fields, and message fields.
-type scalarFieldUnit struct {
-	fd            protoreflect.FieldDescriptor
-	bits          uint32
-	lengthBits    uint32
-	countBits     uint32
-	keyBits       uint32
-	keyLengthBits uint32
-	isOptional    bool // proto3 optional (synthetic oneof) → emit 1-bit presence
-	isMessage     bool // nested message → emit 1-bit presence + recurse
-	isTimestamp   bool // google.protobuf.Timestamp → compact integer encoding
+// ScalarFieldUnit handles regular fields, proto3-optional fields, and message fields.
+type ScalarFieldUnit struct {
+	Fd            protoreflect.FieldDescriptor
+	Bits          uint32
+	LengthBits    uint32
+	CountBits     uint32
+	KeyBits       uint32
+	KeyLengthBits uint32
+	IsOptional    bool // proto3 optional (synthetic oneof) → emit 1-bit presence
+	IsMessage     bool // nested message → emit 1-bit presence + recurse
+	IsTimestamp   bool // google.protobuf.Timestamp → compact integer encoding
 }
 
-func (s *scalarFieldUnit) isEncodingUnit() {}
+func (s *ScalarFieldUnit) isEncodingUnit() {}
 
-// oneofUnit handles a real (non-synthetic) oneof group.
-type oneofUnit struct {
-	od           protoreflect.OneofDescriptor
-	selectorBits uint32
-	fields       []*scalarFieldUnit // in declaration order
+// OneofUnit handles a real (non-synthetic) oneof group.
+type OneofUnit struct {
+	Od           protoreflect.OneofDescriptor
+	SelectorBits uint32
+	Fields       []*ScalarFieldUnit // in declaration order
 }
 
-func (o *oneofUnit) isEncodingUnit() {}
+func (o *OneofUnit) isEncodingUnit() {}
 
-// messageSchema is the pre-analyzed encoding plan for a MessageDescriptor.
-type messageSchema struct {
-	units []encodingUnit
+// MessageSchema is the pre-analyzed encoding plan for a MessageDescriptor.
+type MessageSchema struct {
+	Units []EncodingUnit
 }
 
-// analyzeMessage builds the ordered encoding plan for a MessageDescriptor.
+// AnalyzeMessage builds the ordered encoding plan for a MessageDescriptor.
 // Returns *ValidationError for missing/invalid annotations.
-func analyzeMessage(md protoreflect.MessageDescriptor) (*messageSchema, error) {
-	schema := &messageSchema{}
+func AnalyzeMessage(md protoreflect.MessageDescriptor) (*MessageSchema, error) {
+	schema := &MessageSchema{}
 	seenOneofs := map[protoreflect.FullName]bool{}
 
 	fds := md.Fields()
@@ -58,7 +59,7 @@ func analyzeMessage(md protoreflect.MessageDescriptor) (*messageSchema, error) {
 				if err != nil {
 					return nil, err
 				}
-				schema.units = append(schema.units, unit)
+				schema.Units = append(schema.Units, unit)
 			}
 		} else {
 			// Regular field, proto3-optional, or message field
@@ -66,17 +67,17 @@ func analyzeMessage(md protoreflect.MessageDescriptor) (*messageSchema, error) {
 			if err != nil {
 				return nil, err
 			}
-			schema.units = append(schema.units, unit)
+			schema.Units = append(schema.Units, unit)
 		}
 	}
 
 	return schema, nil
 }
 
-func buildOneofUnit(od protoreflect.OneofDescriptor, md protoreflect.MessageDescriptor) (*oneofUnit, error) {
-	opts := getOneofOpts(od)
+func buildOneofUnit(od protoreflect.OneofDescriptor, md protoreflect.MessageDescriptor) (*OneofUnit, error) {
+	opts := GetOneofOpts(od)
 	n := od.Fields().Len()
-	minBits := minSelectorBits(n)
+	minBits := MinSelectorBits(n)
 
 	selectorBits := opts.SelectorBits
 	if selectorBits == 0 {
@@ -89,9 +90,9 @@ func buildOneofUnit(od protoreflect.OneofDescriptor, md protoreflect.MessageDesc
 		}
 	}
 
-	unit := &oneofUnit{
-		od:           od,
-		selectorBits: selectorBits,
+	unit := &OneofUnit{
+		Od:           od,
+		SelectorBits: selectorBits,
 	}
 
 	for j := 0; j < n; j++ {
@@ -101,40 +102,40 @@ func buildOneofUnit(od protoreflect.OneofDescriptor, md protoreflect.MessageDesc
 			return nil, err
 		}
 		// Fields inside a oneof are never "optional" in the proto3-optional sense
-		su.isOptional = false
-		unit.fields = append(unit.fields, su)
+		su.IsOptional = false
+		unit.Fields = append(unit.Fields, su)
 	}
 
 	return unit, nil
 }
 
-func buildScalarUnit(fd protoreflect.FieldDescriptor, md protoreflect.MessageDescriptor) (*scalarFieldUnit, error) {
-	opts := getFieldOpts(fd)
+func buildScalarUnit(fd protoreflect.FieldDescriptor, md protoreflect.MessageDescriptor) (*ScalarFieldUnit, error) {
+	opts := GetFieldOpts(fd)
 
-	unit := &scalarFieldUnit{
-		fd:            fd,
-		bits:          opts.Bits,
-		lengthBits:    opts.LengthBits,
-		countBits:     opts.CountBits,
-		keyBits:       opts.KeyBits,
-		keyLengthBits: opts.KeyLengthBits,
+	unit := &ScalarFieldUnit{
+		Fd:            fd,
+		Bits:          opts.Bits,
+		LengthBits:    opts.LengthBits,
+		CountBits:     opts.CountBits,
+		KeyBits:       opts.KeyBits,
+		KeyLengthBits: opts.KeyLengthBits,
 	}
 
 	od := fd.ContainingOneof()
-	// Message-kind fields (isMessage, isTimestamp) handle their own presence bit internally,
-	// so isOptional must not be set for them — it would produce a double presence bit on wire.
+	// Message-kind fields (IsMessage, IsTimestamp) handle their own presence bit internally,
+	// so IsOptional must not be set for them — it would produce a double presence bit on wire.
 	if od != nil && od.IsSynthetic() &&
 		fd.Kind() != protoreflect.MessageKind &&
 		fd.Kind() != protoreflect.GroupKind {
-		unit.isOptional = true
+		unit.IsOptional = true
 	}
 
 	if fd.Kind() == protoreflect.MessageKind || fd.Kind() == protoreflect.GroupKind {
 		if !fd.IsList() && !fd.IsMap() {
 			if fd.Message().FullName() == "google.protobuf.Timestamp" {
-				unit.isTimestamp = true
+				unit.IsTimestamp = true
 			} else {
-				unit.isMessage = true
+				unit.IsMessage = true
 			}
 		}
 	}
@@ -147,13 +148,13 @@ func buildScalarUnit(fd protoreflect.FieldDescriptor, md protoreflect.MessageDes
 	return unit, nil
 }
 
-func validateScalarUnit(u *scalarFieldUnit, fd protoreflect.FieldDescriptor, md protoreflect.MessageDescriptor) error {
+func validateScalarUnit(u *ScalarFieldUnit, fd protoreflect.FieldDescriptor, md protoreflect.MessageDescriptor) error {
 	msgName := string(md.FullName())
 	fieldName := string(fd.Name())
 
 	// repeated / map: need count_bits
 	if fd.IsList() || fd.IsMap() {
-		if u.countBits == 0 {
+		if u.CountBits == 0 {
 			return &ValidationError{Message: msgName, Field: fieldName, Reason: "repeated/map field requires count_bits > 0"}
 		}
 	}
@@ -163,11 +164,11 @@ func validateScalarUnit(u *scalarFieldUnit, fd protoreflect.FieldDescriptor, md 
 		keyFd := fd.MapKey()
 		switch keyFd.Kind() {
 		case protoreflect.StringKind, protoreflect.BytesKind:
-			if u.keyLengthBits == 0 {
+			if u.KeyLengthBits == 0 {
 				return &ValidationError{Message: msgName, Field: fieldName, Reason: "map with string/bytes key requires key_length_bits > 0"}
 			}
 		default:
-			if u.keyBits == 0 {
+			if u.KeyBits == 0 {
 				return &ValidationError{Message: msgName, Field: fieldName, Reason: "map with integer key requires key_bits > 0"}
 			}
 		}
@@ -181,65 +182,65 @@ func validateScalarUnit(u *scalarFieldUnit, fd protoreflect.FieldDescriptor, md 
 
 	switch valueFd.Kind() {
 	case protoreflect.BoolKind:
-		if u.bits != 0 && u.bits != 1 {
+		if u.Bits != 0 && u.Bits != 1 {
 			return &ValidationError{Message: msgName, Field: fieldName, Reason: "bool field: bits must be 0 or 1"}
 		}
 	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind,
 		protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
 		if !fd.IsMap() && !fd.IsList() {
-			if u.bits == 0 {
+			if u.Bits == 0 {
 				return &ValidationError{Message: msgName, Field: fieldName, Reason: "integer field requires bits > 0"}
 			}
-		} else if u.bits == 0 {
+		} else if u.Bits == 0 {
 			return &ValidationError{Message: msgName, Field: fieldName, Reason: "integer element requires bits > 0"}
 		}
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind,
 		protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
-		if u.bits == 0 {
+		if u.Bits == 0 {
 			return &ValidationError{Message: msgName, Field: fieldName, Reason: "integer field requires bits > 0"}
 		}
 	case protoreflect.FloatKind:
-		fo := getFieldOpts(fd)
+		fo := GetFieldOpts(fd)
 		if fo.Fixed != nil || fo.Ufixed != nil {
 			if fo.Fixed != nil && fo.Ufixed != nil {
 				return &ValidationError{Message: msgName, Field: fieldName, Reason: "float field: fixed and ufixed are mutually exclusive"}
 			}
-			if u.bits == 0 || u.bits > 32 {
+			if u.Bits == 0 || u.Bits > 32 {
 				return &ValidationError{Message: msgName, Field: fieldName, Reason: "float field with fixed/ufixed: bits must be 1..32"}
 			}
-		} else if u.bits != 0 && u.bits != 16 && u.bits != 32 {
+		} else if u.Bits != 0 && u.Bits != 16 && u.Bits != 32 {
 			return &ValidationError{Message: msgName, Field: fieldName, Reason: "float field: bits must be 0, 16, or 32"}
 		}
 	case protoreflect.DoubleKind:
-		fo := getFieldOpts(fd)
+		fo := GetFieldOpts(fd)
 		if fo.Fixed != nil || fo.Ufixed != nil {
 			if fo.Fixed != nil && fo.Ufixed != nil {
 				return &ValidationError{Message: msgName, Field: fieldName, Reason: "double field: fixed and ufixed are mutually exclusive"}
 			}
-			if u.bits == 0 || u.bits > 64 {
+			if u.Bits == 0 || u.Bits > 64 {
 				return &ValidationError{Message: msgName, Field: fieldName, Reason: "double field with fixed/ufixed: bits must be 1..64"}
 			}
-		} else if u.bits != 0 && u.bits != 16 && u.bits != 32 && u.bits != 64 {
+		} else if u.Bits != 0 && u.Bits != 16 && u.Bits != 32 && u.Bits != 64 {
 			return &ValidationError{Message: msgName, Field: fieldName, Reason: "double field: bits must be 0, 16, 32, or 64"}
 		}
 	case protoreflect.StringKind, protoreflect.BytesKind:
-		if u.lengthBits == 0 {
+		if u.LengthBits == 0 {
 			return &ValidationError{Message: msgName, Field: fieldName, Reason: "string/bytes field requires length_bits > 0"}
 		}
 	case protoreflect.EnumKind:
-		if u.bits == 0 {
+		if u.Bits == 0 {
 			return &ValidationError{Message: msgName, Field: fieldName, Reason: "enum field requires bits > 0"}
 		}
 	case protoreflect.MessageKind, protoreflect.GroupKind:
-		if u.isTimestamp {
-			fo := getFieldOpts(fd)
+		if u.IsTimestamp {
+			fo := GetFieldOpts(fd)
 			if fo.Fixed != nil || fo.Ufixed != nil {
 				return &ValidationError{Message: msgName, Field: fieldName, Reason: "timestamp field: incompatible with fixed/ufixed"}
 			}
-			if u.lengthBits != 0 || u.countBits != 0 {
+			if u.LengthBits != 0 || u.CountBits != 0 {
 				return &ValidationError{Message: msgName, Field: fieldName, Reason: "timestamp field: incompatible with length_bits/count_bits"}
 			}
-			if u.bits > 64 {
+			if u.Bits > 64 {
 				return &ValidationError{Message: msgName, Field: fieldName, Reason: "timestamp field: bits must be 0..64"}
 			}
 			tso := fo.GetTimestamp()

@@ -1,0 +1,8 @@
+# Compiled code generator plugin (build with:
+#   go build -o protoc-gen-bitpacker-c ./cmd/protoc-gen-bitpacker-c)
+/protoc-gen-bitpacker-c
+
+# macOS / editor junk
+.DS_Store
+*.swp
+*~
